@@ -1,0 +1,86 @@
+name: CI
+
+# One workflow. It validates the real repository contract with the same commands
+# a developer runs locally, against a real PostgreSQL server — never SQLite.
+#
+# Pull requests may trigger this as a convenience, but the project does not
+# require them: direct verified milestone merges into main are the adopted
+# workflow.
+
+on:
+  push:
+    branches:
+      - main
+      - 'build/**'
+      - 'chore/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Repository contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: notarify
+          POSTGRES_PASSWORD: notarify_ci_only
+          POSTGRES_DB: notarify_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U notarify -d notarify_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      DATABASE_URL: postgresql://notarify:notarify_ci_only@localhost:5432/notarify_ci?schema=public
+      JWT_SECRET: ci-only-secret-not-for-production
+      CORS_ORIGIN: http://localhost:3001
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 12.5.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations to a fresh database
+        run: pnpm exec prisma migrate deploy --config prisma7.config.ts
+
+      - name: Repository contract
+        run: pnpm check
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: pnpm test:e2e
+
+      - name: Dependency audit
+        run: pnpm audit

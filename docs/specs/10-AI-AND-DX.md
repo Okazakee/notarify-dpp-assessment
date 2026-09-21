@@ -105,6 +105,18 @@ After the primary implementation is internally green, run a focused independent 
 
 Run the exact applicable quality gates: schema validation where relevant, lint, typecheck, production build, real PostgreSQL integration tests, relevant Playwright tests, seed validation where relevant, dependency audit, and milestone-specific checks. Later passes add security, container and deployment checks once those capabilities exist. Do not create fake scripts for gates that are not implemented, and do not report a check as passed unless it ran against the relevant final commit state.
 
+### Local feedback, `pnpm check` and CI
+
+**`pnpm check`** is the normal local repository contract: `pnpm db:validate`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, and the API integration suite against real PostgreSQL. Playwright is deliberately excluded so the command stays fast enough to run on every push; CI and milestone Gate 4 run it separately.
+
+**Local feedback.** `pnpm hooks:install` points git at the tracked `.githooks` directory once per clone. `pre-commit` runs `pnpm lint`; `pre-push` runs `pnpm check`. There is no hook framework, no commit-msg hook and no conventional-commit enforcement. **Hooks are local developer feedback only: they can be bypassed with `--no-verify` and are therefore not authoritative evidence.** CI is the clean-environment validation layer.
+
+**CI.** Every pushed milestone or tooling branch receives CI from the single workflow `.github/workflows/ci.yml`, triggered on `main`, `build/**`, `chore/**` and `fix/**`. It uses a real PostgreSQL 18.6 service, a frozen-lockfile install, migrations applied to a fresh database, and then the same commands a developer runs locally: `pnpm check`, `pnpm test:e2e`, `pnpm audit`. There is one workflow, no browser matrix, no coverage threshold, no release automation and no container scanning. Pull requests may trigger it as a convenience, but **CI does not depend on pull requests** and the project does not require them.
+
+**Gate 4 addition.** A meaningful implementation pass is not considered fully validated until applicable local validation passes **and** the final pushed branch HEAD has green CI.
+
+**Gate 8 addition.** After an accepted milestone is merged with `--no-ff` into `main`: push `main`, require CI on the resulting `main` commit to pass, then prove milestone reachability, then delete the completed local and remote milestone branch.
+
 ### Gate 5 — end-of-pass repository truthfulness reconciliation (mandatory)
 
 Before declaring a pass complete, re-read and reconcile `AGENTS.md`, README/current-state documentation, `docs/IMPLEMENTATION-DECISIONS.md`, `docs/AI-WORKLOG.md`, and any owning spec whose adopted behaviour changed. `AGENTS.md` must be updated whenever the repository's actual state changed, and must accurately state what is implemented, what is explicitly not, supported commands, current test suites and counts, proven invariants, client/server contracts agents must preserve, unresolved decisions relevant to future work, and known warnings or limitations. This is not optional cleanup: a pass is not complete while `AGENTS.md` describes the state from before it. The worklog policy is: **during an active, unmerged milestone the AI worklog may be reconciled and normalized for accuracy; once a milestone is accepted and merged into `main`, its completed historical evidence becomes stable, and later material corrections must be explicit and traceable through Git rather than silently rewritten.** Historical planning prose is not silently rewritten, adopted behaviour may be clarified with dated notes, and stale present-state claims must not survive merely because they were once true.
@@ -123,7 +135,25 @@ Cristian reviews the completion report and the core decisions. For this project'
 
 ### Gate 8 — milestone merge
 
-There is no permanent `develop` branch. Milestone branches use scoped names (`build/product-drafts`, `build/assets`, `build/publication`, `build/analytics`). A milestone branch merges into `main` only after Cristian explicitly approves the merge. Afterwards, verify the resulting `main`, delete obsolete ancestor branches once their commits are reachable from `main`, and create the next milestone branch from the updated `main`. Do not maintain chains of unmerged milestone branches, and do not merge historical ancestor branches separately when the accepted milestone already contains them.
+This is a solo assessment repository with an explicit gated workflow. **Pull requests are optional tooling, not a project gate.** Direct, verified milestone merges into `main` are the adopted workflow. Earlier planning text in other specs that mentions pull requests is a proposal, and it is superseded here; **no pull request was used for Milestone 1**.
+
+The adopted integration sequence:
+
+1. Create a scoped milestone branch from the current `main` (`build/assets`, `build/publication`, `build/analytics`, …).
+2. Complete Gates 0–6 on that branch.
+3. Stop at Gate 7.
+4. Cristian explicitly accepts or rejects the milestone.
+5. On acceptance, Pi performs the merge directly:
+   - switch to `main` and fetch/update it;
+   - verify no unexpected divergence;
+   - `git merge --no-ff <milestone-branch>`;
+   - push `main`, then verify local and remote `main` agree;
+   - prove the milestone tip is reachable from `main`;
+   - delete the completed milestone branch locally and remotely;
+   - stop.
+6. The next milestone begins only on a new explicit Cristian instruction, with a fresh Gate 0 and Gate 1.
+
+There is no permanent `develop` branch, no mandatory pull request, no chain in which an unmerged milestone branches from another, no automatic creation of the next milestone branch, no squash merge for accepted milestones, and no rebase of accepted milestone history for cosmetic cleanup. A normal `--no-ff` merge is the default because it preserves the meaningful commits inside the milestone and gives the milestone a clear boundary on `main`, without pull-request ceremony that would add no decision authority in a solo repository.
 
 ### Decision authority
 

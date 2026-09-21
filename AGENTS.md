@@ -4,7 +4,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 ## Current status
 
-**Milestone: Product Draft.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified. Everything downstream of drafts is not.
+**Milestone 1 is merged into `main`.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified on `main`. Everything downstream of drafts is not.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys.
@@ -16,7 +16,7 @@ Implemented:
 
 Not implemented, and not to be assumed: product delete/withdraw, publication and republish, publish authorization, Passport/PassportVersion, public passport pages, binary asset uploads, ProductImage, ProductDocument, certification PDFs, company logo, QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenancy onboarding, Docker/Compose and deployment.
 
-Verified on 2026-09-21 by re-running the full milestone gate from the final branch state: `prisma validate` passes; `pnpm lint` reports no diagnostics across 55 files; both workspaces typecheck and build; the API's 29 integration tests in 2 suites pass against PostgreSQL 18.6; the 6 Playwright tests pass against the built stack; `pnpm db:seed` is idempotent; `pnpm audit` reports no known vulnerabilities.
+Verified on 2026-09-21 by re-running the full milestone gate on the accepted milestone commit now merged into `main`: `prisma validate` passes; `pnpm lint` reports no diagnostics across 55 files; both workspaces typecheck and build; the API's 29 integration tests in 2 suites pass against PostgreSQL 18.6; the 6 Playwright tests pass against the built stack; `pnpm db:seed` is idempotent; `pnpm audit` reports no known vulnerabilities.
 
 ## The specs are authoritative
 
@@ -78,6 +78,8 @@ Supported today. Runtime is Node 24.21.0 with pnpm 12.5.1 — the pinned version
 | `pnpm db:validate` | `prisma validate` against `prisma7.config.ts` |
 | `pnpm db:generate` | Generate the Prisma client into `apps/api/src/generated/prisma` |
 | `pnpm db:migrate` | `prisma migrate dev` against `DATABASE_URL` |
+| `pnpm check` | The normal local repository contract: `db:validate`, `lint`, `typecheck`, `build` and the API integration suite |
+| `pnpm hooks:install` | Point git at `.githooks` (once per clone) |
 | `pnpm lint` / `pnpm lint:fix` | Biome check (and autofix) across the workspace |
 | `pnpm typecheck` | `tsc --noEmit` in every workspace that defines it |
 | `pnpm build` | Build every workspace |
@@ -92,7 +94,7 @@ The API has no `dev` script: build it and run `node apps/api/dist/src/main.js`. 
 
 The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGIN`; see `.env.example`. Startup fails fast on missing or unsafe configuration.
 
-**Not supported yet — do not document or invoke them as if they work:** `check`, `test:unit`, `openapi:export`, `security:check`, `compose:up`. They remain proposals from the roadmap. There is no Docker or Compose configuration in this repository; the database used for testing is a disposable container.
+**Not supported yet — do not document or invoke them as if they work:** `test:unit`, `openapi:export`, `security:check`, `compose:up`. They remain proposals from the roadmap. There is no Docker or Compose configuration in this repository; the database used for testing is a disposable container.
 
 ## Test evidence
 
@@ -143,11 +145,11 @@ Every meaningful pass follows these gates in order. The full version lives in [d
 1. **Scope and decision gate** — state the goal, in-scope and out-of-scope behaviour, contracts touched, unresolved decisions this slice needs, required evidence and exit condition. **Never silently select an unresolved material product/security/architecture decision**: present the options and stop for Cristian unless his prompt already chose one. An earlier AI recommendation is not human approval.
 2. **Implementation** — only the approved slice, preserving proven invariants, in small logical commits. Do not modify `main` or create the next milestone branch early.
 3. **Focused independent verification** — target the pass's critical invariants (auth → session/replay/authorization; drafts → ownership/concurrency/mass assignment; assets → MIME/signature/immutability/access). A second AI agreeing is not proof; resolve or record findings.
-4. **Executable validation** — run the applicable gates. Never report a check as passed unless it ran against the relevant final commit state.
+4. **Executable validation** — run the applicable gates. Never report a check as passed unless it ran against the relevant final commit state. Local hooks are feedback only and can be bypassed with `--no-verify`; a pass is not fully validated until applicable local validation passes **and** the final pushed branch HEAD has green CI (`.github/workflows/ci.yml`).
 5. **End-of-pass truthfulness reconciliation (mandatory)** — re-read and reconcile this file, README/current-state docs, `docs/IMPLEMENTATION-DECISIONS.md`, `docs/AI-WORKLOG.md` and any owning spec whose behaviour changed. **A pass is not complete while `AGENTS.md` still describes the state from before that pass.** The worklog may be reconciled and normalized for accuracy while a milestone is unmerged, and its completed evidence becomes stable once that milestone is merged; historical prose is not rewritten, and stale present-state claims must not survive.
 6. **Completion report and stop** — push, report HEAD, commands, results, decisions, defects, unresolved items, what is unvalidated, and the recommended next slice. Then stop. A successful pass grants permission to report readiness, not to advance the project.
 7. **Cristian decision gate** — the next action happens only after Cristian decides. Do not infer approval from silence or from green tests.
-8. **Milestone merge** — there is no permanent `develop` branch. A milestone branch merges into `main` only with explicit approval; then verify `main`, delete obsolete branches, and branch the next milestone from the updated `main`.
+8. **Milestone merge** — there is no permanent `develop` branch and **no mandatory pull request**: direct verified merges are the adopted workflow, and no PR was used for Milestone 1. After merging, require CI on the resulting `main` commit to pass before proving reachability and deleting the branch. On Cristian's explicit acceptance, Pi switches to `main`, verifies no divergence, runs `git merge --no-ff <milestone-branch>`, pushes, proves the tip is reachable from `main`, and deletes the completed branch locally and remotely. No squash, no cosmetic rebase, no automatic creation of the next milestone branch; the next milestone starts only on a new instruction with a fresh Gate 0.
 
 ### Authority hierarchy
 

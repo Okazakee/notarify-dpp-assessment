@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-commit: cheap feedback only.
+#
+# Hooks are local developer convenience. They can be bypassed with --no-verify and
+# are therefore NOT authoritative evidence. CI is the clean-environment validation
+# layer; see .github/workflows/ci.yml.
+set -e
+exec pnpm lint

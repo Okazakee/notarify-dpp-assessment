@@ -2,7 +2,7 @@
 
 Technical assessment submission for **Notarify**: a Digital Product Passport (DPP) application.
 
-> **Status: Product Draft milestone.** The validated schema and initial PostgreSQL migration, the hardened authentication flow, and Product draft CRUD with optimistic concurrency are implemented and verified. Everything downstream of drafts is not: no uploads, publication, passports, QR, PDF, analytics, Redis, dashboards, Users/Settings or deployment. Nothing here is a claim of working software beyond what the sections below describe.
+> **Status: Milestone 1 merged.** The validated schema and initial PostgreSQL migration, the hardened authentication flow, and Product draft CRUD with optimistic concurrency are implemented, verified and merged into `main`. Everything downstream of drafts is not: no uploads, publication, passports, QR, PDF, analytics, Redis, dashboards, Users/Settings or deployment. Nothing here is a claim of working software beyond what the sections below describe.
 
 ## The assessment
 
@@ -75,6 +75,16 @@ pnpm test:e2e                                 # Playwright auth + product regres
 ```
 
 Application setup, seed and test commands land with roadmap Stage 2 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they exist and have been executed.
+
+## Local quality gate and CI
+
+```bash
+pnpm hooks:install   # once per clone: points git at .githooks
+pnpm check           # db:validate, lint, typecheck, build, API integration tests
+pnpm test:e2e        # Playwright, run by CI and at milestone gates
+```
+
+`pnpm check` is the normal local contract and is what `pre-commit`/`pre-push` invoke (`pre-commit` runs `pnpm lint` only). Hooks are convenience: they can be bypassed with `--no-verify`, so they are not evidence. `.github/workflows/ci.yml` is the authoritative clean-environment check — one workflow, real PostgreSQL 18.6, migrations applied to a fresh database, then `pnpm check`, `pnpm test:e2e` and `pnpm audit`. Pull requests are optional; they are not required by the project workflow.
 
 ## Data and claims
 

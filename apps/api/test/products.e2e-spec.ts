@@ -29,7 +29,22 @@ type ProductResponse = {
 let app: INestApplication
 let prisma: PrismaService
 const fixtures: Fixture[] = []
+const categoryIds: string[] = []
 const productIds: string[] = []
+
+/**
+ * Creates a category for the calling test. The suite must not depend on ambient
+ * database state: a freshly migrated database has no categories, which is exactly
+ * how CI runs it. The previous version called findFirstOrThrow and only passed
+ * because the local development database happened to be seeded.
+ */
+async function createCategory(): Promise<{ id: string }> {
+  const category = await prisma.category.create({
+    data: { stableCode: `TEST-CATEGORY-${randomUUID()}`, name: 'Filter test category' },
+  })
+  categoryIds.push(category.id)
+  return category
+}
 
 async function createFixture(role: UserRole = UserRole.EDITOR): Promise<Fixture> {
   const company = await prisma.company.create({
@@ -100,6 +115,9 @@ afterAll(async () => {
     await prisma.sustainability.deleteMany({ where: { productId: { in: ids } } })
     await prisma.certification.deleteMany({ where: { productId: { in: ids } } })
     await prisma.product.deleteMany({ where: { id: { in: ids } } })
+  }
+  if (categoryIds.length > 0) {
+    await prisma.category.deleteMany({ where: { id: { in: categoryIds } } })
   }
   const userIds = fixtures.map((fixture) => fixture.userId)
   if (userIds.length > 0) {
@@ -414,7 +432,7 @@ describe('Product draft HTTP API', () => {
   it('bounds pagination and supports full-text, identifier, category, country, and date filters', async () => {
     const fixture = await createFixture()
     const token = await login(fixture)
-    const category = await prisma.category.findFirstOrThrow()
+    const category = await createCategory()
     const text = rememberProduct(
       (
         await request(app.getHttpServer()).post('/products').set(auth(token)).send({

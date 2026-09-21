@@ -289,3 +289,92 @@ These were once recorded incorrectly and are stated correctly in the rounds abov
 **Not validated / deferred.** No tests, builds, migrations or scans were run or re-run, because nothing executable changed. Human source-code review remains deferred until the complete project is built.
 
 **Result.** Folded into the product-draft milestone, together with the worklog normalization and the status-banner correction. Capability: a canonical, reviewer-friendly evidence record. The gate that remained next at that point was Cristian's milestone acceptance decision.
+
+---
+
+## 2026-09-21 — Milestone 1 integration
+
+**Scope.** Gate 8 only: integrate the accepted Product Draft milestone into `main`, reconcile the final milestone documentation, and record the permanent integration workflow. No next milestone, no new branch, no feature work.
+
+**AI participation.** Pi performed the milestone integration and its verification, on the `opencode-go/deepseek-v4.1-flash` route. No external model participated in the integration itself; Sol's and Astra's roles are unchanged from the participants section above and are not extended by this round.
+
+**Human review.** Decision/scope review: Cristian explicitly accepted the Product Draft milestone and authorized its integration into `main`, and specified the housekeeping scope. Manual validation: not performed by Cristian. Source-code review: intentionally deferred until the complete project is built. Milestone acceptance is a decision, not source-code review.
+
+**Decisions.** Product Draft accepted as Milestone 1. Milestone integration is a direct verified merge to `main` with `--no-ff`; internal milestone commit history is preserved. There is no permanent `develop` branch and no mandatory pull request — pull requests are optional tooling and none was used. Completed milestone branches are deleted once their tips are proven reachable from `main`. No squash merges, and no rebasing of accepted milestone history for cosmetic cleanup.
+
+**Work performed.** Final Gate 5 correction removing the contradictory `append-only` sentence from `AGENTS.md`; the full executable gate re-run on the final candidate; the verified integration of the accepted milestone into `main`; and the adopted integration workflow recorded in `docs/specs/10-AI-AND-DX.md` and `AGENTS.md`.
+
+**Findings / rejected approaches.** One stale statement was found and corrected: `AGENTS.md`'s concise Gate 5 description still said the worklog stays append-only, contradicting the policy adopted later in the same file. A targeted scan found no other stale present-state claims. Rejected: rewriting the earlier planning text that mentions pull requests — it stands as a proposal and is superseded by the adopted workflow instead.
+
+**Validation evidence.** All executed during this integration pass:
+
+| Gate | Result |
+| --- | --- |
+| `pnpm db:validate` | schema is valid |
+| `pnpm lint` | 55 files, no diagnostics |
+| `pnpm typecheck` | both workspaces pass |
+| `pnpm build` | both workspaces pass |
+| API integration | 2 suites, 29/29 against PostgreSQL 18.6 |
+| `pnpm test:e2e` | 6/6 |
+| `pnpm db:seed` twice | idempotent; 3 seed-owned categories remained stable |
+| `pnpm audit` | no known vulnerabilities |
+| accepted milestone tree vs `main` | empty content diff |
+| local vs remote `main` after push | equal |
+
+The accepted milestone is the product-draft milestone commit.
+
+**Not validated / deferred.** Human source-code review; load testing; penetration testing; container scanning; Compose and VPS deployment; and every feature outside Milestone 1 — binary asset uploads, images/documents/certificate PDFs, publication and republish, Passport/PassportVersion, public passport pages, QR, PDF export, delete/withdraw, analytics, Redis, dashboard metrics, Users/Settings and version review.
+
+**Result.** Milestone 1 is integrated into `main` as the product-draft milestone commit. The next milestone requires an explicit Cristian instruction, a fresh Gate 0, a fresh Gate 1, and a new scoped branch created from the then-current `main`.
+
+---
+
+## 2026-09-21 — Tooling: local hooks and CI safety net
+
+**Scope.** A proportional tooling slice from `main`: one canonical local quality command, two git hooks, one CI workflow, and the documentation that goes with them. Explicitly excluded: release automation, deployment, coverage thresholds, conventional-commit enforcement, changelogs, dependency bots, multiple workflows, runtime matrices, container or security scanning, branch protection, PR requirements, Docker/Compose, and any application feature.
+
+**AI participation.** Pi performed the work on the `opencode-go/deepseek-v4.1-flash` route. No external model participated in this round.
+
+**Human review.** Decision/scope review: Cristian approved this tooling slice and set its boundaries, including the instruction to keep it proportional and to prefer a dependency-free hook mechanism if practical. Manual validation: not performed by Cristian. Source-code review: intentionally deferred until the complete project is built.
+
+**Decisions.** `pnpm check` is the normal local contract (`db:validate`, `lint`, `typecheck`, `build`, API integration) and deliberately excludes Playwright so it stays fast enough for every push. Hooks use git's own `core.hooksPath` pointing at a tracked `.githooks` directory — no hook framework, no dependency. CI is a single workflow and does not depend on pull requests.
+
+**Work performed.** Added the `check` and `hooks:install` scripts; `.githooks/pre-commit` and `.githooks/pre-push`; `.github/workflows/ci.yml`; updated `docs/specs/10-AI-AND-DX.md`, `AGENTS.md` and `README.md`.
+
+**Findings / rejected approaches.** CI caught a **real defect that local runs had hidden**: the product filter test called `prisma.category.findFirstOrThrow()`, so it required a Category to exist. That held locally only because the development database had been seeded; a freshly migrated database has none, which is exactly how CI runs it. The test now creates its own category and tracks it for cleanup. Proven against a newly created, newly migrated database with zero categories: 2 suites, 29/29 pass, where 1 of 29 had failed before. Fixed in this round.
+
+A `prepare` script was written first to enable the hooks automatically on install, then **removed**: it did not run on a genuinely fresh clone or with `--force` in this pnpm 12.5.1 setup, so documenting automatic hook setup would have described something that never happens. The replacement is an explicit `pnpm hooks:install` command. Also rejected: Husky, Lefthook and simple-git-hooks as unnecessary dependencies for two one-line hooks; commit-msg hooks; conventional commits; and a browser matrix in CI.
+
+**Validation evidence.** `pnpm check` — passes: schema valid, 55 files linted with no diagnostics, both workspaces typecheck and build, 2 test suites and 29/29 API integration tests. `pnpm test:e2e` — 6/6. `pnpm audit` — no known vulnerabilities. Workflow YAML parsed and structurally verified (one job, nine steps, PostgreSQL 18.6 service, `contents: read`, concurrency cancellation enabled). Action pins resolved to commit SHAs through the GitHub API rather than guessed. Hook behaviour verified directly: `pre-commit` ran `pnpm lint` on a real commit, and `pre-push` ran `pnpm check` during a `--dry-run` push. **CI: run 35652357007 — success**, all sixteen steps green in 2m0s: install with frozen lockfile, migrations applied to a fresh database, `pnpm check`, Playwright Chromium install, `pnpm test:e2e`, and `pnpm audit`. An earlier run (35652066813) failed on the category defect above; the workflow itself was never at fault.
+
+**Not validated / deferred.** No container or security scanning, no coverage thresholds, no branch protection, no deployment. Human source-code review remains deferred until the complete project is built.
+
+**Result.** The tooling slice — the canonical `check` command, the two hooks and the CI workflow, with the product-filter test defect fixed in the same round — is the final repository commit. Capability: a local contract, cheap local feedback and a green clean-environment CI layer. The next gate is Cristian's decision on whether to accept this tooling slice.
+
+---
+
+## 2026-09-21 — Tooling integration (CI and Git hooks)
+
+**Scope.** Gate 8 integration of the accepted CI/hooks tooling slice only. No next milestone, no new branch, no additional tooling, no application change.
+
+**AI participation.** Pi performed the integration and the repository verification, on the `opencode-go/deepseek-v4.1-flash` route. No external model participated in this round.
+
+**Human review.** Decision/scope review: Cristian accepted the tooling slice and explicitly authorized Gate 8. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built. Milestone acceptance is a decision, not source-code review.
+
+**Decisions.** The dependency-free tracked `.githooks/` directory is retained, enabled per clone with `pnpm hooks:install` through git's `core.hooksPath`. `pre-commit` runs `pnpm lint`; `pre-push` runs `pnpm check`. GitHub CI is the authoritative clean-environment validation, and hooks are explicitly non-authoritative because they can be bypassed with `--no-verify`. Pull requests remain optional and no PR was used. Direct `--no-ff` merges remain the adopted integration workflow.
+
+**Work performed.** Verified the tooling slice on a clean environment, integrated it as the final repository commit, pushed `main`, required green CI on the resulting `main` commit, and recorded this round.
+
+**Findings / rejected approaches.** None new in this round. The earlier CI failure caused by the product filter test's ambient-database assumption was fixed in the tooling round above and is carried by this commit. Rejected: squash-based integration and pull-request ceremony, which would add no decision authority in a solo repository.
+
+**Validation evidence.**
+
+| Item | Value |
+| --- | --- |
+| Tooling slice CI | run `35652679189`, workflow `CI`, **success** |
+| CI on integrated `main` | run `35654454808`, workflow `CI`, **success**, 16/16 steps |
+| Application behaviour change | none |
+
+**Not validated / deferred.** Human source-code review remains deferred. No container or security scanning, no coverage thresholds, no branch protection, no deployment. No Asset work exists yet.
+
+**Result.** The tooling slice is integrated into `main`. Capability: `pnpm check`, local hooks and a green clean-environment CI layer are now part of the repository contract. The next milestone requires an explicit Cristian instruction, a fresh Gate 0 and Gate 1, and a new scoped branch from the then-current `main`.

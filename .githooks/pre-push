@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-push: the normal repository contract, not the full suite.
+#
+# Deliberately excludes the Playwright suite so ordinary iteration stays
+# reasonable; CI and milestone Gate 4 run it. Hooks can be bypassed with
+# --no-verify and are not authoritative evidence.
+set -e
+exec pnpm check
