@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+bower_components/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.credentials/
+
+# Local database and runtime data
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+
+# Uploads and generated fixture artifacts
+uploads/
+storage/
+tmp/
+.tmp/
+
+# Private assessment material — must never enter the public repository
+/assessment/
+/Notarify_Fullstack_developer_task.pdf
+*.eml
+*.mbox
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
