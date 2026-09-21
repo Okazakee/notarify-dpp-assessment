@@ -111,12 +111,15 @@ model RefreshToken {
   createdAt    DateTime  @default(now()) @db.Timestamptz(6)
 
   session     AuthSession  @relation(fields: [sessionId], references: [id], onDelete: Restrict)
-  replacedBy  RefreshToken? @relation("RefreshSuccessor", fields: [replacedById], references: [id], onDelete: Restrict)
+  replacedBy  RefreshToken? @relation("RefreshSuccessor", fields: [replacedById, sessionId], references: [id, sessionId], onDelete: Restrict)
   predecessor RefreshToken? @relation("RefreshSuccessor")
 
   @@index([sessionId, expiresAt])
   @@index([expiresAt])
   @@unique([id, sessionId])
+  // Required by Prisma for the composite one-to-one successor relation; implied by
+  // replacedById being unique on its own, and it is what makes the composite FK legal.
+  @@unique([replacedById, sessionId])
 }
 
 model Category {
@@ -292,12 +295,15 @@ model Passport {
 
   product        Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
   versions       PassportVersion[] @relation("PassportVersions")
-  currentVersion PassportVersion?  @relation("PassportCurrentVersion", fields: [currentVersionId], references: [id], onDelete: Restrict)
+  currentVersion PassportVersion?  @relation("PassportCurrentVersion", fields: [currentVersionId, id], references: [id, passportId], onDelete: Restrict)
   analyticsEvents AnalyticsEvent[]
   analyticsDaily  AnalyticsDaily[]
 
   @@index([withdrawnAt])
   @@index([productId, withdrawnAt])
+  // Required by Prisma for the composite one-to-one current-version relation; implied
+  // by currentVersionId being unique on its own.
+  @@unique([currentVersionId, id])
 }
 
 model PassportVersion {
@@ -371,7 +377,7 @@ model AnalyticsEvent {
   synthetic     Boolean            @default(false)
 
   passport Passport        @relation(fields: [passportId], references: [id], onDelete: Restrict)
-  version  PassportVersion? @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  version  PassportVersion? @relation(fields: [versionId, passportId], references: [id, passportId], onDelete: Restrict)
 
   @@index([passportId, occurredAt])
   @@index([passportId, kind, occurredAt])

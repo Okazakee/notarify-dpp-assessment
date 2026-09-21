@@ -1,0 +1,10 @@
+# pnpm configuration.
+#
+# Workspace package globs (apps/*, packages/*) are added once those directories
+# gain their own manifests.
+#
+# Build-script approval, written by `pnpm approve-builds --all`. pnpm 12 blocks
+# dependency install scripts by default; the Prisma CLI needs its postinstall.
+allowBuilds:
+  '@prisma/engines': true
+  prisma: true

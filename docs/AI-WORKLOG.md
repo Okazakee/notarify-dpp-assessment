@@ -131,3 +131,64 @@ Prohibited: invented results, precise "percentage of AI-written code" claims, cl
 **Verified correct by the sweep.** Both documented composite-FK rules now have matching candidate keys; no `onDelete` cascade can erase `PassportVersion`, `PassportVersionAsset`, `AssetContent`, `AuditEvent`, or `AnalyticsEvent`; the tsvector/GIN search index is correctly assigned to future migration SQL rather than claimed in the schema.
 
 **Not performed / not claimed.** Prisma schema validation, migration generation, PostgreSQL execution, dependency installation, and all tests/builds remain **NOT PERFORMED**. The back-relation change above is reasoned from Prisma's documented requirement, not from a successful validation run.
+
+---
+
+## 2026-09-21 — Schema validation and initial migration (build/schema-validation)
+
+**Task.** Turn the reviewed schema draft into a validated, reproducible PostgreSQL foundation, without starting application implementation.
+
+**Model and harness.** Pi harness (0.87.0). Implementation and integration ran on the primary `opencode-go/deepseek-v4.1-flash` route; an independent verification pass was run on a separate fast-model subagent. No GPT-route model participated in this round. Reviewers are AI, not humans.
+
+**Locked decisions.** Deployment tenancy (one company per deployment) and product granularity (one serialized item per product, unique `(companyId, serialNumber)`, serials reserved after soft delete) were adopted from the round brief and moved out of the unresolved list. No other open decision was touched.
+
+**Toolchain added.** Root ESM `package.json` with exact pins only, `pnpm-workspace.yaml`, `prisma7.config.ts`, `.env.example`, `.gitignore` entry for the generated client, `pnpm-lock.yaml`. Installed: prisma 7.10.0, @prisma/client 7.10.0, @prisma/adapter-pg 7.10.0, pg 8.23.0, dotenv 18.0.1, typescript 6.0.3, on Node 24.21.0 and pnpm 12.5.1. The dependency matrix had missed the required driver adapter; corrected here.
+
+**Commands executed and actual results.**
+- `pnpm install` — exit 0, 159 packages. Initially exit 1 with `ERR_PNPM_IGNORED_BUILDS`; resolved with `pnpm approve-builds --all`, which wrote an `allowBuilds` map into `pnpm-workspace.yaml` (an earlier draft of this entry and of the corresponding commit message said `onlyBuiltDependencies`; pnpm 12 uses `allowBuilds`, and the file is authoritative).
+- `prisma validate` — "The schema at prisma/schema.prisma is valid".
+- `prisma generate` — Prisma Client 7.10.0 generated in 117 ms.
+- `prisma migrate dev --create-only` — created `20260921152150_init`.
+- `prisma migrate dev` — applied; no follow-up migration, no drift.
+- `prisma migrate deploy` against a fresh database — all migrations applied.
+- `prisma migrate status` — database schema up to date.
+- `psql` on PostgreSQL 18.6 — 21 tables, 30 FKs, 16 CHECKs, 79 indexes.
+- `prisma/verification/invariant-checks.sql` — 11 checks (12 assertions) all passed, inside one rolled-back transaction.
+
+**Schema changes forced by real validation.** A hand-written composite FK for the three cross-table invariants was written into the migration and Prisma silently removed it on the next `migrate dev`, because it reconciles foreign keys it does not model. The fix was to express the composite foreign keys as composite relations in `schema.prisma`, which required adding `@@unique([currentVersionId, id])` and `@@unique([replacedById, sessionId])`. This is a better outcome than the planned hand-written SQL: the constraints are now Prisma-managed and cannot drift. `AnalyticsEvent.version` now targets `PassportVersion(id, passportId)`.
+
+**Suggestions rejected or deferred.** No application scaffold, no Nest/Next project, no Compose stack, no seed script, no trigger-based immutability, no retention job, no Redis. The Prisma CLI offered 8.0.0-rc.15 as an update; declined, as recorded earlier.
+
+**Human review performed.** none yet.
+
+**Not performed.** Application behaviour, Nest/Next build, lint, typecheck, dependency vulnerability audit, Compose, deployment. The PostgreSQL instance was a disposable container.
+
+**Open questions.** The unresolved product and policy assumptions in the decision record remain open, now excluding tenancy and granularity. Schema-level validation does not exercise any transactional rule.
+
+**Independent verification pass (fast-model subagent, same round).** Confirmed by re-running: `prisma --version` pins (Node v24.21.0, pnpm 12.5.1, Prisma/client 7.10.0, TS 6.0.3), `db:validate` valid, `migrate status` up to date, all 12 invariant assertions PASS with the claimed SQLSTATE classes, and live counts of 21 tables / 30 FKs / 16 CHECKs / 79 indexes. It also re-read the enforcement register against the migration SQL and found every assigned rule present.
+
+Corrections it forced, applied in the following commit:
+- `pnpm-workspace.yaml` uses `allowBuilds`, not `onlyBuiltDependencies`; the earlier claim was wrong and is corrected here and in the file's comment.
+- The decision record's status line still said "no migration or package manifest exists", and the enforcement register preamble still said no SQL migration had been created or applied. Both were stale after this round and are corrected.
+- `PassportVersion_source_draft_revision_nonnegative_ck` existed in the migration without being named in the register; the numeric/range row now names all fourteen CHECK constraints that were actually created.
+- The composite-FK note was reworded: the constraints *are* present in the migration, generated by Prisma from the schema; what was abandoned was the hand-written SQL form.
+
+---
+
+## 2026-09-21 — Repository truthfulness pass and publish-permission correction
+
+**Task.** Before any scaffolding, correct stale present-state claims written by earlier planning rounds so later agents receive accurate instructions. Documentation only.
+
+**Model and harness.** Pi harness (0.87.0), primary `opencode-go/deepseek-v4.1-flash` route. No subagents, no GPT-route models. No human review occurred.
+
+**Stale claims corrected.**
+- `AGENTS.md` described the repository as having no package manager, no dependencies, no supported commands, and no schema validation or migration. It now states that the toolchain and initial migration exist and are verified, that there is still no application code, and it lists the only four commands that actually run. The unsupported command names remain listed as proposals, explicitly marked as not working.
+- `README.md` claimed "repository setup only" with nothing to run and no dependencies. It now documents the working database commands and scopes the missing pieces to the applications.
+- `docs/IMPLEMENTATION-DECISIONS.md` still carried an unresolved row asserting "Admin alone publishes". Replaced with the recorded project decision.
+
+**Decision recorded.** Publishing and republishing are **not** Admin-only. Editor: read private product data and previews, create/edit drafts with child data and assets, publish and republish, read aggregate analytics. Admin: all of that plus delete/withdraw, version review, raw analytics and audit access, user/role management, company settings. This supersedes the earlier Admin-only proposal. The brief does not define permissions, so it remains a project choice rather than a Notarify requirement, and publish authorization stays **unimplemented** — nothing may gate publish to ADMIN in code yet.
+- `docs/specs/04-AUTH-AND-SECURITY.md` split its publish row from the delete/review row and gained a dated note, so the older Admin-only text is visibly superseded rather than silently rewritten.
+
+**Deliberately not changed.** Historical proposals, rejections and unresolved items elsewhere in the specs were left intact; no planning decision was retroactively restated as if it had always been correct. No product requirement was changed.
+
+**Checks run.** Documentation edits only. No build, test, linter, typecheck, Prisma command or database command was run in this pass.

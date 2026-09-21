@@ -4,7 +4,9 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 ## Current status
 
-**Repository setup only.** No framework scaffolded, no dependencies installed, no feature implemented. Do not assume a command, script, or config file exists because it is mentioned in a spec — most described tooling is *proposed*.
+**Toolchain and database only — no application code.** The pnpm workspace, the pinned Prisma 7 toolchain and the initial PostgreSQL migration exist and are verified. There is still **no NestJS or Next.js app, no service, controller, guard, DTO, seed or Docker configuration**. Do not assume a command exists because a spec mentions it; the commands listed below are the only ones that run.
+
+Verified on 2026-09-21: `prisma validate` passes, `prisma generate` succeeds, migration `20260921152150_init` applies cleanly to PostgreSQL 18.6, and the schema-level invariants in `prisma/verification/invariant-checks.sql` pass. Application behaviour is **not** implemented and **not** tested.
 
 ## The specs are authoritative
 
@@ -54,11 +56,18 @@ Boundaries that are not negotiable:
 
 ## Commands
 
-**No command is supported yet.** There is no package manager setup, no scripts, and no Docker configuration in this repository.
+Supported today. Runtime is Node 24.21.0 with pnpm 12.5.1 — the pinned versions.
 
-The intended stable interface, to be introduced with roadmap Stage 1 and *only* documented once it actually runs: `check`, `test:unit`, `test:integration`, `test:e2e`, `db:migrate`, `db:seed`, `openapi:export`, `security:check`, `compose:up`.
+| Command | Does |
+| --- | --- |
+| `pnpm install` | Install the pinned toolchain from `pnpm-lock.yaml` |
+| `pnpm db:validate` | `prisma validate` against `prisma7.config.ts` |
+| `pnpm db:generate` | Generate the Prisma client into `apps/api/src/generated/prisma` |
+| `pnpm db:migrate` | `prisma migrate dev` against `DATABASE_URL` |
 
-Do not invent flags, or assume a tool is installed because its name appears in a spec.
+`prisma7.config.ts` is deliberately not auto-detected, so every Prisma invocation must pass `--config prisma7.config.ts`. The scripts already do; pass it yourself if you call Prisma directly.
+
+**Not supported yet — do not document or invoke them as if they work:** application dev servers, `check`, `test:unit`, `test:integration`, `test:e2e`, `db:seed`, `openapi:export`, `security:check`, `compose:up`. They remain proposals from the roadmap. There is no Docker configuration in this repository; the validation round used a disposable container.
 
 ## Test evidence
 

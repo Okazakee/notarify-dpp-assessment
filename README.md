@@ -2,7 +2,7 @@
 
 Technical assessment submission for **Notarify**: a Digital Product Passport (DPP) application.
 
-> **Status: repository setup only.** No framework has been scaffolded, no dependency installed, and no feature implemented. This repository currently contains the planning specifications and the agreed directory layout. Nothing here is a claim of working software.
+> **Status: toolchain and database only.** The pnpm workspace, the pinned Prisma 7 toolchain and the initial PostgreSQL migration are in place and verified (see [docs/IMPLEMENTATION-DECISIONS.md](docs/IMPLEMENTATION-DECISIONS.md)). **No application code exists** — no API, no frontend, no features. Nothing here is a claim of working software.
 
 ## The assessment
 
@@ -50,7 +50,20 @@ The five code directories hold only `.gitkeep`; no dependency has been installed
 
 ## Getting started
 
-There is nothing to run yet — no application code and no dependencies. Setup, migration, seed, and test commands land with roadmap Stage 1 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they actually exist and have been executed.
+The database toolchain runs today; the applications do not exist yet.
+
+```bash
+# Requires Node 24.21.0 and pnpm 12.5.1
+pnpm install
+cp .env.example .env          # then set DATABASE_URL to a PostgreSQL 18 instance
+pnpm db:validate              # prisma validate
+pnpm db:generate              # generate the Prisma client
+pnpm db:migrate               # apply migrations
+```
+
+`prisma/verification/invariant-checks.sql` re-checks the schema-level invariants against an already-migrated database; it rolls back everything it inserts.
+
+Application setup, seed and test commands land with roadmap Stage 2 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they exist and have been executed.
 
 ## Data and claims
 

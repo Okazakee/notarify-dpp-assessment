@@ -8,10 +8,13 @@ Use `role: ADMIN | EDITOR`, not an `isAdmin` boolean. A boolean could represent 
 | --- | --- | --- |
 | Read private product data / preview | Yes | Yes |
 | Create/edit product, materials, documents and images | Yes | Yes |
-| Publish/republish, delete, review a publication | No | Yes |
+| Publish/republish | Yes | Yes |
+| Delete/withdraw, review a publication | No | Yes |
 | Read aggregate analytics/dashboard | Yes | Yes |
 | Read raw scan metadata / audit entries | No | Yes |
 | Manage users, roles, company settings | No | Yes |
+
+**Update 2026-09-21:** publishing and republishing are **not** Admin-only. The project decided Editors may publish; the earlier draft above that put publish on the Admin-only row was a project proposal, not a Notarify requirement, and has been split into separate rows. The brief still does not define permissions, so the remaining cells stay a project choice rather than a source requirement.
 
 This matrix is a proposal because the brief does not define permissions. Enforce it on every protected endpoint and within sensitive use cases. UI hiding is not authorization. Avoid CASL until resource rules become complex enough to justify it.
 

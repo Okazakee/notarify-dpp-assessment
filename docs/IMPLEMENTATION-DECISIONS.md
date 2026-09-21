@@ -1,7 +1,7 @@
 # Implementation decisions — schema review
 
 **Date:** 2026-09-21  
-**Status:** pre-implementation draft; no migration or package manifest exists.  
+**Status:** schema validated and migrated to PostgreSQL 18.6 (see the verification record below). No application code exists.  
 **Scope reviewed:** `AGENTS.md` and `docs/specs/00-ROADMAP.md` through `10-AI-AND-DX.md`, reconciled with the supplied task prompt. The original assessment PDF and recruitment email are absent from this repository, so this record **cannot independently compare this draft against either source document**. It checks only the supplied repository specs and task prompt for internal consistency.
 
 This document records an implementation-ready *provisional* model. It makes no ESPR-compliance, certification, authenticity, legal, or real-world verification claim.
@@ -36,15 +36,25 @@ These are low-product-impact engineering choices made for this draft. They remai
 | Narrow module ownership and proportional SOLID | Named use cases/services and small ports are sufficient; no inheritance hierarchy or generic repository layer. |
 | PostgreSQL `simple` full-text configuration for product prose | It is appropriate for multilingual demo text; SKU/serial matching remains a separate identifier query. |
 
+### B2. Decisions locked in the build/schema-validation round
+
+These were unresolved drafts and are now settled. They carried a migration-blocking deadline, and the initial migration encodes them.
+
+| Decision | Adopted | Consequence now fixed in the schema |
+| --- | --- | --- |
+| Deployment tenancy | One company per deployment. `companyId` ownership columns and ownership checks are retained. No tenant onboarding, membership infrastructure, tenant routing or generalized multi-tenant architecture is built. | `User.normalizedEmail` stays globally unique. Company filters remain plain ownership comparisons, not a permission boundary. |
+| Product granularity | One serialized physical item per `Product`. SKU may repeat. `(companyId, serialNumber)` is unique. Soft-deleted serial numbers stay reserved. | `Product_companyId_serialNumber_key` is a real unique index; `Product.sku` is indexed but deliberately not unique. Reversing this later is a migration, not a config change. |
+| Publish authorization | Editors may publish and republish; publishing is not Admin-only. Admin additionally deletes/withdraws, reviews versions, reads raw analytics and audits, and manages users and settings. | Supersedes the earlier Admin-only proposal. The brief requires neither behaviour. Publish authorization is **not implemented** in the authentication slice and must never be gated to ADMIN in code until this is recorded as final. |
+
+Every other entry in section C remains unresolved and must not be treated as approved.
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.
 
 | Assumption | Recommended simple default | Credible alternative | Consequence of default | Latest decision deadline |
 | --- | --- | --- | --- | --- |
-| Deployment tenancy | One company per deployment; retain `companyId` ownership fields. | Real multi-tenant onboarding/isolation. | No membership/onboarding/routing infrastructure; global normalized email uniqueness is acceptable only for one company. | **Before initial migration** (migration-blocking). |
-| Product granularity | One serialized item per `Product`; SKU may repeat; `(companyId, serialNumber)` is unique and remains reserved after soft deletion. | One catalog-model row with variants/items elsewhere. | The serial unique constraint and public/passport cardinality change if the alternative wins. | **Before initial migration** (migration-blocking). |
-| Admin/Editor permission matrix | Both edit; Admin alone publishes, deletes, reviews, manages users/settings, and sees raw analytics/audits. | Different publish/review/analytics powers. | API policies and visible UI affordances follow the default only provisionally. | **Before auth/API and Users/UI implementation**. |
+| Admin/Editor permission matrix | Project decision (2026-09-21): an Editor reads private product data and previews, creates and edits product drafts with their child data and assets, **publishes and republishes**, and reads aggregate dashboard analytics. An Admin does all of that plus delete/withdraw, version review, raw analytics and audit access, user and role management, and company settings. | Different publish/review/analytics powers | Publication is **not** Admin-only; the earlier Admin-only proposal is superseded. The brief does not define permissions, so every cell remains a project choice, not a Notarify requirement. | **Publish authorization stays unimplemented** until it is recorded as final; nothing may gate publish to ADMIN in code |
 | Internal “verification” meaning and wording | A version-scoped, qualified internal review (`APPROVED`/`REJECTED`); no review means unreviewed. | Omit badge/review, or use another explicitly qualified workflow. | It cannot imply authenticity, certification, ESPR compliance, or official registration. | **Before public API/UI and review endpoint**. |
 | Published-edit visibility | Editing live draft data leaves the current public snapshot unchanged until explicit republish. | Immediate public edits. | A stale-looking public page is intentional; editors must understand explicit republish. | **Before publish/public UI implementation**. |
 | Analytics semantics | `QR_HIT` = QR-link URL request; `VIEW` = rendered public page event; never call either a unique person/scan. | Different labels/collection contract. | Dashboard labels and retention query boundaries derive from these definitions. | **Before analytics API/UI implementation**. |
@@ -145,17 +155,18 @@ The schema deliberately contains no mutable Product status, no authorization per
 
 ## SQL and transactional application enforcement register
 
-The following are future migration/application requirements. **No SQL migration has been created or applied.** `Prisma schema` means the ordinary relation/index/unique declaration in `prisma/schema.prisma`; `Migration SQL` means a named future PostgreSQL constraint/index/trigger; `Transactional rule` means a named Nest use-case transaction whose behavior must be integration-tested on PostgreSQL.
+The following are migration/application requirements. **The initial migration now exists and is applied** (`prisma/migrations/20260921152150_init`), so every rule recorded below as satisfied by schema or migration SQL is live in the tested database; the remaining transactional rules are still future work. This correction supersedes the earlier 'no SQL migration has been created or applied' statement. `Prisma schema` means the ordinary relation/index/unique declaration in `prisma/schema.prisma`; `Migration SQL` means a named future PostgreSQL constraint/index/trigger; `Transactional rule` means a named Nest use-case transaction whose behavior must be integration-tested on PostgreSQL.
 
 | Rule | Target columns / expression | Enforcement layer and future name | Why it is needed |
 | --- | --- | --- | --- |
 | One cover image | `ProductImage(productId)` where `role = 'COVER'` | Migration SQL: `ProductImage_one_cover_per_product_uq` partial unique index | Prisma cannot express a filtered unique index. |
 | Full-text product prose | `to_tsvector('simple', coalesce(name,'') || ' ' || coalesce(description,''))` | Migration SQL: `Product_search_simple_tsv_gin` GIN index; parameterized catalog search query | True multilingual prose search; SKU/serial remain separately matched identifiers. |
-| Numeric/range integrity | Material percentage; sustainability percentages/repairability/measurements; asset size; all positions; draft revision; version/schema number; daily count | Migration SQL checks: `Material_percentage_range_ck`, `Sustainability_*_range_ck`, `Asset_size_positive_ck`, `*_position_nonnegative_ck`, `Product_draft_revision_nonnegative_ck`, `PassportVersion_number_positive_ck`, `AnalyticsDaily_count_nonnegative_ck` | Prisma models types, not these PostgreSQL CHECK invariants. Unknown remains `NULL`, never a fake zero. |
+| Numeric/range integrity | Material percentage and position; sustainability percentages, repairability, carbon, water; asset size; image/document positions; draft revision; version number; snapshot schema version; source draft revision; daily count | **Migration SQL (applied):** `Material_percentage_range_ck`, `Material_position_nonnegative_ck`, `Sustainability_recycled_percent_range_ck`, `Sustainability_repairability_range_ck`, `Sustainability_carbon_nonnegative_ck`, `Sustainability_water_nonnegative_ck`, `Asset_size_positive_ck`, `ProductImage_position_nonnegative_ck`, `ProductDocument_position_nonnegative_ck`, `Product_draft_revision_nonnegative_ck`, `PassportVersion_number_positive_ck`, `PassportVersion_snapshot_schema_version_positive_ck`, `PassportVersion_source_draft_revision_nonnegative_ck`, `AnalyticsDaily_count_nonnegative_ck` | Prisma models types, not these PostgreSQL CHECK invariants. Unknown remains `NULL`, never a fake zero. |
 | Certification date ordering | `expirationDate IS NULL OR issueDate IS NULL OR expirationDate >= issueDate` | Migration SQL: `Certification_expiration_not_before_issue_ck` | Prevents impossible completed certification dates while drafts may remain incomplete. |
 | Production date | `productionDate <= CURRENT_DATE` at publish time | Transactional rule: `publication.future_date_validation_tx` | PostgreSQL CHECK with `CURRENT_DATE` is not a stable immutable expression; validate under publish lock. |
-| Current Passport version belongs to same Passport | `Passport(currentVersionId, id)` references `PassportVersion(id, passportId)` | Migration SQL: `Passport_current_version_same_passport_fkey`; schema has the ordinary pointer and composite candidate unique key | A simple FK to version ID permits another passport’s version. Replace/validate the ordinary FK in initial migration. |
-| Refresh successor is same session/family and unique predecessor | `RefreshToken(replacedById, sessionId)` references successor `(id, sessionId)`; `replacedById` unique | Schema unique `RefreshToken_replacedById_key` plus candidate key `@@unique([id, sessionId])`; Migration SQL `RefreshToken_successor_same_session_fkey`; Transactional rule `auth.refresh_rotate_strict_tx` | The self-FK alone cannot prove successor session ownership or prevent cycles. A session is the token-family boundary. |
+| Current Passport version belongs to same Passport | `Passport(currentVersionId, id)` references `PassportVersion(id, passportId)` | **Schema (verified):** `Passport_currentVersionId_id_fkey`, a composite FK generated by Prisma, legal because of `@@unique([currentVersionId, id])`; candidate key `PassportVersion_id_passportId_key` | Expressed in the schema, not hand-written migration SQL: Prisma reconciles away foreign keys it does not model, so the hand-written version was removed on the next `migrate dev`. Proven rejected with SQLSTATE 23503. |
+| Analytics event version belongs to its passport | `AnalyticsEvent(versionId, passportId)` references `PassportVersion(id, passportId)` | **Schema (verified):** `AnalyticsEvent_versionId_passportId_fkey`, composite and Prisma-generated | Added this round. Without it a nullable `versionId` could cite another passport’s version. A NULL `versionId` short-circuits the check. Proven rejected with SQLSTATE 23503. |
+| Refresh successor is same session/family and unique predecessor | `RefreshToken(replacedById, sessionId)` references `(id, sessionId)` | **Schema (verified):** `RefreshToken_replacedById_sessionId_fkey`, composite and Prisma-generated, legal because of `@@unique([replacedById, sessionId])`; candidate key `RefreshToken_id_sessionId_key`; Transactional rule `auth.refresh_rotate_strict_tx` | A session is the token-family boundary. Cycle prevention and atomic rotation remain transactional rules. Proven rejected with SQLSTATE 23503. |
 | Refresh rotation/reuse | token digest, `usedAt`, session expiry/revocation | Transactional rule: `auth.refresh_rotate_strict_tx` using row lock or atomic CAS | Exactly one request consumes and links a successor; later use revokes that session family. |
 | Company/link ownership | Product/asset/image/document/certification/logo/version-asset company path | Transactional rule: `catalog.asset_ownership_consistency_tx` | Cross-table company equality cannot be expressed by ordinary scalar FKs; lock/read product and asset before link/publish. |
 | Material total | material rows of one product at `expectedDraftRevision` | Transactional rule: `publication.material_total_100_tx` | Sum must equal exactly 100.00 only when materials exist; it is a cross-row publication rule, not a row CHECK. |
@@ -207,20 +218,50 @@ Uploaded content is immutable; replacement creates a new Asset. Every snapshot h
 | 5. Asset link, serve, withdraw/delete | Upload creates Asset+AssetContent; publish links version assets; deletion locks Product/Passport and writes audit | AssetContent 1:1; version-asset composite key; Product/Passport restrict FKs | Reject invalid/foreign/unavailable asset; delete rolls back as a unit | Upload retry creates a new immutable asset; download reauthorizes each request | GC only unreferenced, grace-expired abandoned uploads; product deletion retains history. |
 | 6. Analytics ingest/rollup | Insert raw event or upsert daily bucket; rollup locks closed interval then deletes raw rows | `eventKey` unique; daily `(passportId,dateUtc,kind,synthetic)` unique; passport/version restrict FKs | Ingestion failure leaves passport reachable and logs safe failure; rollup failure leaves raw rows | Reused VIEW key returns counted-once result; rollup retry is safe | Raw policy unresolved; proposed 7d raw/90d daily; deletion does not erase early. |
 
-## Verification record and explicit limits
+## Verification record and achieved evidence
 
-Performed for this draft:
+Everything below was executed in the `build/schema-validation` round against a pinned toolchain. Claims are limited to what was actually observed.
 
-- Read `AGENTS.md`, the existing worklog, and all eleven governing specs in `docs/specs/`.
-- Read the supplied official-source dependency verification record and transcribed its exact selected versions, official URLs, published constraints, licenses, and documented compatibility conclusions.
-- Retrieved official Prisma 7 documentation for the `prisma-client` generator/output, `prisma.config.ts` datasource URL ownership, PostgreSQL datasource, native date/timestamptz mapping, unique/index syntax, one-to-one relations, and restrictive referential actions.
-- Manually cross-checked this record and the draft schema for required models, relations, enums, lifecycle fields, indexes, and explicit enforcement ownership.
+### Validated
 
-Not performed (and not implied by manual inspection):
+| Step | Result |
+| --- | --- |
+| `prisma validate` (CLI 7.10.0) | **The schema at prisma/schema.prisma is valid** |
+| `prisma generate` | Prisma Client 7.10.0 generated to `apps/api/src/generated/prisma` in 117 ms |
+| Migration generated | `prisma/migrations/20260921152150_init/migration.sql` |
+| Migration applied | applied to PostgreSQL 18.6; `migrate status` reports the database schema is up to date, and re-running `migrate dev` produced **no drift** and no follow-up migration |
+| Migration from an empty database | `migrate deploy` against a freshly created database applied all migrations successfully |
+| Resulting objects | 21 tables, 30 foreign keys, 16 CHECK constraints, 79 indexes |
+| PostgreSQL version exercised | `PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on x86_64-pc-linux-gnu`, from the `postgres:18.6` image |
 
-- **Prisma schema validation: NOT PERFORMED** — Prisma CLI is unavailable and installation is forbidden.
-- **Migration generation/application: NOT PERFORMED.**
-- **Dependency installation/audit: NOT PERFORMED.**
-- **Application tests/build/lint/typecheck/Compose/deployment: NOT PERFORMED** because no scaffold or dependencies exist.
+### Mechanically tested invariants
 
-An independent architect/security review is required by Task 6 before primary-owned commit. It does not replace future pinned-Prisma validation or PostgreSQL migration testing.
+`prisma/verification/invariant-checks.sql` runs against a migrated database inside a single rolled-back transaction. All checks passed, and the SQLSTATE records which constraint class fired.
+
+| # | Invariant | Outcome |
+| --- | --- | --- |
+| 1 | Passport may reference its own version | accepted |
+| 2 | Passport may not reference another passport's version | rejected, 23503 |
+| 3 | Same-session refresh successor | accepted |
+| 4 | Cross-session refresh successor | rejected, 23503 |
+| 5 | Event may cite its own passport version | accepted |
+| 6 | Event may not cite another passport's version | rejected, 23503 |
+| 7 | Second COVER image for one product | rejected, 23505 |
+| 8a | Material percentage above 100 | rejected, 23514 |
+| 8b | Non-positive asset size | rejected, 23514 |
+| 9 | Certification expiry before issue date | rejected, 23514 |
+| 10 | Duplicate `(passportId, sourceDraftRevision)` | rejected, 23505 |
+| 11 | `VIEW` event without an idempotency key | rejected, 23514 |
+
+### Schema changes forced by real validation
+
+1. The three cross-table composite foreign keys are declared **in `schema.prisma`** as composite relations, and Prisma generates the actual composite foreign keys in the migration from them. What was abandoned is the *hand-written* migration-SQL form: a hand-written version was tried first and Prisma removed it on the next `migrate dev`, because it reconciles foreign keys it does not model. Declaring them in the schema instead keeps the invariant and removes that drift, at the cost of two extra candidate keys (`@@unique([currentVersionId, id])`, `@@unique([replacedById, sessionId])`), both implied by uniqueness already present.
+2. `AnalyticsEvent.version` now references `PassportVersion(id, passportId)` rather than `PassportVersion(id)`.
+
+### Not performed, and not implied by anything above
+
+- **Application behaviour: NOT implemented and NOT tested.** No service, controller, guard, transaction, seed or module exists. Every transactional rule in this document remains unexercised.
+- **NestJS/Next.js build, lint, typecheck: NOT performed.** No application scaffold exists.
+- **Dependency audit: NOT performed.** The resolved tree has not been vulnerability-scanned; no package is claimed vulnerability-free.
+- **Compose and deployment: NOT performed.** The database used here was a disposable container, not the project stack.
+- **Trigger-based immutability, retention jobs, backup and restore: NOT implemented** — still assigned to later hardening.
