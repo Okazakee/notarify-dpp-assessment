@@ -40,6 +40,7 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   getMe: () => Promise<AuthUser>
+  request: (path: string, init?: RequestInit) => Promise<Response>
 }
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
@@ -347,8 +348,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearSession])
 
   const contextValue = useMemo(
-    () => ({ status, user, login, logout, getMe }),
-    [getMe, login, logout, status, user],
+    () => ({ status, user, login, logout, getMe, request: requestWithAccessToken }),
+    [getMe, login, logout, requestWithAccessToken, status, user],
   )
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>

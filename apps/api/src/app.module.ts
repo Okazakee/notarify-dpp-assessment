@@ -4,9 +4,10 @@ import { AuthModule } from './auth/auth.module.js'
 import { ApiExceptionFilter } from './common/api-exception.js'
 import { ValidatedConfigModule } from './config/config.module.js'
 import { PrismaModule } from './prisma/prisma.module.js'
+import { ProductsModule } from './products/products.module.js'
 
 @Module({
-  imports: [ValidatedConfigModule, PrismaModule, AuthModule],
+  imports: [ValidatedConfigModule, PrismaModule, AuthModule, ProductsModule],
   providers: [
     {
       provide: APP_FILTER,

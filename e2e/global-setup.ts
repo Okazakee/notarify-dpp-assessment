@@ -30,6 +30,21 @@ export default async function globalSetup(): Promise<void> {
        ON CONFLICT (id) DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", active = true`,
       [E2E_EMAIL, passwordHash],
     )
+    // Categories are required by the product editor; keep the e2e run
+    // self-contained instead of depending on the root seed having been run.
+    const categories: Array<[string, string, string]> = [
+      ['00000000-0000-4000-8000-00000000f001', 'E2E-CAT-ELECTRONICS', 'Electronics'],
+      ['00000000-0000-4000-8000-00000000f002', 'E2E-CAT-TEXTILES', 'Textiles'],
+      ['00000000-0000-4000-8000-00000000f003', 'E2E-CAT-FURNITURE', 'Furniture'],
+    ]
+    for (const [id, stableCode, name] of categories) {
+      await client.query(
+        `INSERT INTO "Category" (id, "stableCode", name, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, now(), now())
+         ON CONFLICT ("stableCode") DO NOTHING`,
+        [id, stableCode, name],
+      )
+    }
   } finally {
     await client.end()
   }

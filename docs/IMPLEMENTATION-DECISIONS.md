@@ -1,7 +1,7 @@
 # Implementation decisions — schema review
 
 **Date:** 2026-09-21  
-**Status:** schema validated and migrated to PostgreSQL 18.6 (see the verification record below). No application code exists.  
+**Status:** the schema was validated and migrated to PostgreSQL 18.6, and the application has since moved well past this record — authentication and Product draft CRUD are implemented. Read the decision and enforcement sections as live contracts, and the schema-validation section as the state at that round. The project-wide, current state lives in [AGENTS.md](../AGENTS.md).  
 **Scope reviewed:** `AGENTS.md` and `docs/specs/00-ROADMAP.md` through `10-AI-AND-DX.md`, reconciled with the supplied task prompt. The original assessment PDF and recruitment email are absent from this repository, so this record **cannot independently compare this draft against either source document**. It checks only the supplied repository specs and task prompt for internal consistency.
 
 This document records an implementation-ready *provisional* model. It makes no ESPR-compliance, certification, authenticity, legal, or real-world verification claim.
@@ -66,6 +66,24 @@ Residual risk accepted, stated precisely:
 A sibling subdomain does **not** satisfy an exact `Origin` allowlist, so it is not a residual risk of this design. A CSRF token would not defend against a stolen cookie either. Browsers without `SameSite` support are out of scope.
 
 **Revisit this decision if** the API is ever served from a different registrable domain than the web application, if a cross-site embedding requirement appears, or if the refresh cookie stops being `SameSite=Lax`. Until then, adding a token would add client complexity without closing a reachable gap.
+
+### B4. Draft save contract (recorded — clients depend on it)
+
+`PATCH /products/:id` carries `expectedDraftRevision` as a concurrency precondition, never as a client-settable value. Semantics, implemented and tested:
+
+| Input | Effect |
+| --- | --- |
+| omitted top-level field | unchanged |
+| explicit `null` | cleared where the domain allows null |
+| supplied scalar | replaced |
+| omitted nested section | unchanged |
+| supplied `materials` / `certifications` array | replaces the whole collection in the same transaction |
+| supplied `sustainability` object | updates fields present in the object; omitted inner fields preserved, explicit inner `null` clears |
+| explicit `null` sustainability | removes the record |
+
+The revision is claimed in one transaction with a conditional `UPDATE ... WHERE id/companyId/deletedAt/draftRevision` guard and `RETURNING`. A zero-row result is resolved into 404 (missing, foreign-company or soft-deleted — deliberately indistinguishable) or 409 `PRODUCT_REVISION_CONFLICT`. The loser of a concurrent save applies no nested change.
+
+Deliberately **not** enforced at draft save: publication completeness, and the rule that material percentages total 100. Those remain publication prerequisites. A duplicate `(companyId, serialNumber)` maps to 409 `PRODUCT_SERIAL_CONFLICT`; SKU may repeat.
 
 ### C. Unresolved product and policy assumptions
 

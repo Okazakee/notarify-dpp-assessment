@@ -1,258 +1,291 @@
 # AI work log
 
-Append-only record of AI-assisted contributions to this repository: what a model or agent actually did, what a human actually reviewed, and which checks actually ran.
+Canonical record of how `notarify-dpp-assessment` was actually built: which models and agents did what, which human decisions were made, and which checks were executed.
 
-Maintained per [10-AI-AND-DX.md](specs/10-AI-AND-DX.md). This file records evidence, not intentions. Planned work is never listed as completed work, and no check is recorded as passing unless it was executed.
+## Normalization note
 
-## How to add an entry
+This file was **normalized into the canonical submission history**, once the project had settled on a stable evidence format. The normalization folds known corrections directly into the rounds where they belong, so a reader does not have to replay a chain of corrections to learn what happened.
 
-One entry per meaningful task, newest last. Required fields:
+Each published milestone carries this file as it stood at that point, and the rounds below are that record. This file is the reviewer-facing source of project history, and the corrections the normalization folded in are not replayed as a separate chain.
 
-| Field | Meaning |
+Once a milestone is accepted into the published history, its evidence is stable. Later material corrections must be explicit and traceable in subsequent commits.
+
+## Evidence policy
+
+- **Factual evidence only.** No invented command output, test results, file contents or commit identifiers.
+- **No contribution percentages.** They cannot be measured and are not claimed.
+- **AI review is not human review.** Findings from Pi agents or from ChatGPT are AI review, recorded separately from Cristian's decisions.
+- **Human review has three separate parts** and they are never collapsed:
+  - *Decision / scope review* — reading a completion report, reviewing a core decision, accepting or rejecting a proposed behaviour, deciding scope or sequencing, approving a documented trade-off.
+  - *Manual validation* — personally exercising the software: using the UI, running a command, testing a workflow, checking a deployed instance.
+  - *Source-code review* — reading implementation source or diffs.
+- **Commands are attributed to whoever ran them.** Commands recorded here ran in the local repository environment through the Pi harness unless stated otherwise. Neither ChatGPT model ran local commands.
+- **Planned tests are not passed tests.** A check appears as passed only if it was executed.
+- **Commands are given in the form they were actually invoked.** Prisma is never called without the project config, so `pnpm db:validate` and the explicit `--config prisma7.config.ts` forms appear rather than bare `prisma …` shorthand.
+- **Historical evidence for merged milestones is stable**, as described above.
+- **Terminal transcripts are not committed.** Command results recorded here are self-reported by the environment that ran them, corroborated where possible by committed artifacts — migrations, test files, manifests, lockfiles and database inspection. Independent verification can confirm that the artifacts exist and are consistent with the claims, but cannot replay a past terminal session. The same applies to external model sessions and to Cristian's decisions: the worklog and commit messages are the provenance record, and no repository evidence contradicts them.
+- **A commit cannot name itself.** Each round entry names the commits it covers, not the commit that adds the entry; `git log` carries that successor relationship.
+
+## Participants and roles
+
+### Cristian
+
+- Owns product and scope decisions.
+- Reviews completion reports and core decisions during build rounds, and accepts or rejects recommendations before the next gate.
+- Has **not** performed implementation source-code review yet. Source-code review is intentionally deferred until the complete project is built.
+- Has not personally performed manual validation of the running software. No command output, UI behaviour or database state recorded here was observed by him first-hand; it was produced by Pi and reported to him.
+
+### ChatGPT — GPT-5.6 Sol
+
+External AI layer used outside Pi for:
+
+- architecture, review and orchestration at the conceptual level;
+- analysis of Pi completion reports that Cristian supplied;
+- review of architecture, security and lifecycle decisions;
+- identification of gaps and missing acceptance cases;
+- sequencing and prompt engineering — it produced prompts that Cristian passed to Pi manually;
+- inspection of the public GitHub repository when Cristian requested repository verification.
+
+It did not edit the local repository and did not run the project's shell, database, test or build commands. Its analysis is AI review, not human review.
+
+### GPT-6 Astra
+
+External ChatGPT/browser assistance that additionally participated in browser-based validation where it was used. This is recorded from Cristian's account of his own tooling; no individual sessions or specific observations are asserted. Astra's browser validation is **not** Cristian's manual validation and is not reported as such.
+
+### Pi
+
+The repository coding-agent harness (Pi 0.87.0), used with its `explore`, `architect`, `research`, `review` and `verify` subagents. It performed all local repository work: reading and editing files, running installs, migrations, tests, builds, the database container and git operations.
+
+### Implementation route — `opencode-go/deepseek-v4.1-flash`
+
+Pi's default implementation model, used for the bounded implementation rounds as reported by the harness.
+
+### Architecture and review route — `openai-codex/gpt-5.6-sol`
+
+Pi's architecture and review route. The schema round recorded below is the only round that named it.
+
+### Other Pi subagents
+
+Rounds below record them by the role they played and the agent type the harness reported. Provider or model identities that were never recorded are not invented here.
+
+---
+
+## 2026-09-21 — Repository setup and planning baseline
+
+**Scope.** Initialize the assessment repository from a supplied planning pack; no application code.
+
+**AI participation.** Pi (`opencode-go/deepseek-v4.1-flash` route) performed the setup. The planning documents themselves were AI-assisted drafts produced before the repository existed, supplied as an archive rather than written in-repo.
+
+**Human review.** Decision/scope review: Cristian supplied the planning pack, the assessment requirements and the target repository name, and corrected the handling of the supplied archive mid-round. Manual validation: not performed. Source-code review: not applicable — no source code existed.
+
+**Decisions.** Repository is public; specification set lives under `docs/specs/` as the single canonical location; the assessment PDF and recruitment email stay out of the repository.
+
+**Work performed.** Eleven planning specs extracted to `docs/specs/`; `README.md`, `AGENTS.md`, `.gitignore`, `docs/AI-WORKLOG.md`; placeholder directories for `apps/api`, `apps/web`, `packages/api-client`, `prisma`, `fixtures`.
+
+**Findings / rejected approaches.** Committing the supplied archive, or keeping a duplicate staging copy of the specs, were both rejected in favour of one canonical location. The agent initially removed the already-extracted staging folder without asking; it was restored from the archive and reconciled against `docs/specs/`, and the exclusion was recorded locally in `.git/info/exclude`.
+
+**Validation evidence.** `diff -r` between the extracted specs, the supplied archive and the restored staging folder was identical at import time. Secret-pattern search across the specs: matches were descriptive security text only. `gitleaks` and `trivy` were not installed and were not run.
+
+**Not validated / deferred.** No application code, tests, builds or scans — none existed.
+
+**Result.** The repository baseline milestone, pushed. Capability: a truthful repository skeleton with authoritative specs.
+
+---
+
+## 2026-09-21 — Schema, lifecycle and decision review
+
+**Scope.** Pre-implementation review: reconcile the specs, draft the data model and record decisions. Explicitly excluded: any application code, dependency installation or migration.
+
+**AI participation.** Pi primary; an `architect` agent authored the decision record and schema draft; a separate `verify` agent independently checked dependency versions; `review` agents covering security and integrity checked the result. `openai-codex/gpt-5.6-sol` is recorded for this round's architecture/schema role.
+
+**Human review.** Decision/scope review: Cristian reviewed the decision record and chose one-company-per-deployment and serialized-item Product semantics; he also decided that EDITOR as well as ADMIN may publish and republish. Manual validation: not performed. Source-code review: deferred — the artifact was a draft schema, and no implementation existed.
+
+**Decisions.** Tenancy and product granularity recorded as project decisions. Publishing is not Admin-only. Draft save semantics, ownership scoping and the enforcement-register approach were established here.
+
+**Work performed.** `docs/IMPLEMENTATION-DECISIONS.md` and `prisma/schema.prisma` created; enforcement register assigning every rule to schema, migration SQL or a named transaction; lifecycle invariants stated.
+
+**Findings / rejected approaches.** Several claims asserted in prose had no enforcement layer behind them. Composite foreign keys hand-written into migration SQL were removed by Prisma on the next migration, so they were later expressed as composite relations in the schema. Blanket `Restrict` on draft children, and the absence of a policy for audit metadata retention and asset-state downgrade, were recorded as open rather than fixed. Rejected: generic repositories, CASL, tenant infrastructure, queues, object storage.
+
+**Validation evidence.** Prisma validation was **not** run — no toolchain or project manifest existed in this round. Version claims were verified against publisher registry metadata. Reviewer findings were resolved or recorded in the decision record.
+
+**Not validated / deferred.** Schema validation, migration generation and application tests were all unperformed. No human source review.
+
+**Result.** The data-model milestone. Capability: a reviewed, explicitly provisional data model with recorded decisions.
+
+---
+
+## 2026-09-21 — Schema validation and initial migration
+
+**Scope.** Convert the draft into a validated, migrated PostgreSQL foundation. Explicitly excluded: application code, auth, product features.
+
+**AI participation.** Pi primary on the `opencode-go/deepseek-v4.1-flash` route, plus a `verify` agent that re-ran the gates.
+
+**Human review.** Decision/scope review: Cristian's round brief set the pinned toolchain and the validation goal, and prohibited installation claims without execution. Manual validation: not performed. Source-code review: deferred.
+
+**Decisions.** Exact pins adopted — Node 24.21.0, pnpm 12.5.1, TypeScript 6.0.3, prisma and `@prisma/client` 7.10.0, plus the required `@prisma/adapter-pg` driver adapter that the earlier dependency matrix had missed.
+
+**Work performed.** Root workspace and Prisma 7 config; initial migration `20260921152150_init`; hand-written constraints (partial unique index, tsvector GIN index, fourteen CHECK constraints, certification date ordering, VIEW event-key requirement); `prisma/verification/invariant-checks.sql`.
+
+**Findings / rejected approaches.** Prisma removed hand-written composite foreign keys on the following migration because it reconciles foreign keys it does not model; the three cross-table invariants were therefore expressed as composite relations in `prisma/schema.prisma`, which required two additional candidate keys. `prisma@latest` resolved to an 8.0.0 release candidate and was rejected in favour of the stable 7.10.0 line.
+
+**Validation evidence.** `pnpm db:validate` — valid. `pnpm db:generate` — client generated in 117 ms. `prisma migrate dev --config prisma7.config.ts` — applied with no drift. `prisma migrate deploy --config prisma7.config.ts` against an empty database — applied. `prisma migrate status --config prisma7.config.ts` — up to date. Resulting database: 21 tables, 30 foreign keys, 16 CHECK constraints, 79 indexes. All 12 invariant assertions passed, with SQLSTATE classes 23503, 23505 and 23514 proving the right constraint fired. PostgreSQL 18.6.
+
+**Not validated / deferred.** No application behaviour, no tests, no dependency audit, no human source review.
+
+**Result.** The schema milestone. Capability: a validated, reproducible database foundation.
+
+---
+
+## 2026-09-21 — Repository truthfulness and the publish permission
+
+**Scope.** Documentation-only correction before any scaffolding. Explicitly excluded: feature code.
+
+**AI participation.** Pi primary only.
+
+**Human review.** Decision/scope review: Cristian required the correction and specified the publish permission. Manual validation: not performed. Source-code review: not applicable.
+
+**Decisions.** Publishing and republishing are **not** Admin-only. EDITOR may publish and republish; ADMIN additionally deletes/withdraws, reviews versions, reads raw analytics and audit entries, and manages users and settings. Recorded as a project choice, not an employer requirement. Publish authorization remains unimplemented because publication is out of scope.
+
+**Work performed.** `AGENTS.md` and `README.md` corrected from "repository setup only" to the actual verified state; the superseded Admin-only proposal replaced in the decision record; `docs/specs/04-AUTH-AND-SECURITY.md` split its publish row from delete/review and gained a dated note so the older wording stays visible.
+
+**Findings / rejected approaches.** Historical planning prose was deliberately not rewritten. Proposals were not restated as approved decisions.
+
+**Validation evidence.** None applicable — documentation only; no command was run.
+
+**Not validated / deferred.** No tests or builds; none were relevant.
+
+**Result.** Folded into the schema milestone. Capability: accurate repository instructions for subsequent agents.
+
+---
+
+## 2026-09-21 — Workspace scaffold, authentication slice and hardening
+
+**Scope.** Minimal pnpm/Nest/Next scaffold plus login, refresh, logout and me, with the strict refresh-token transaction proven against real PostgreSQL. Explicitly excluded: product CRUD, publication, uploads, analytics, admin features.
+
+**AI participation.** Pi primary on the `opencode-go/deepseek-v4.1-flash` route; two implementation subagents (one for the API, one for the web flow); one `review` agent focused on security. No GPT-route model was used in this round.
+
+**Human review.** Decision/scope review: Cristian's brief froze the API contract, required Origin enforcement, authoritative actor resolution, generic login failures, idempotent logout and runtime token refresh, and required the CSRF question to be addressed rather than skipped. Manual validation: not performed. Source-code review: deferred.
+
+**Decisions.** No separate CSRF token, accepted after its controls and residual risks were discussed — see the residual-risk statement below. Access-token lifetime made configurable for testing. Cross-tab refresh coordination explicitly deferred.
+
+**Work performed.** `apps/api` (validated config, Prisma service with driver adapter, auth module, shared application configuration, Helmet, request IDs) and `apps/web` (login, workspace, account status, logout, runtime refresh-on-401).
+
+**Findings / rejected approaches.**
+- Biome's recommended preset rewrote injectable and DTO imports to `import type`, breaking Nest dependency injection (9/9 tests failing) and silently disabling `ValidationPipe`. The rule is disabled with the reason recorded.
+- No CORS existed, so the credentialed cross-origin browser flow could not work.
+- pnpm rewrote its build-approval key with placeholder strings, breaking every pnpm command.
+- Three transitive advisories reached the tree through the Prisma CLI; with no patched Prisma 7.x available, they were pinned up through overrides and the toolchain re-verified.
+- A class-field own-property bug made omitted PATCH scalars behave as explicit nulls; this was found in the following round.
+
+**CSRF residual risk (corrected wording).** Requests with no `Origin` header are deliberately allowed so non-browser clients and tests work; this is the main accepted gap. Compromise of the actually allowlisted origin remains relevant. An ordinary same-site sibling subdomain does **not** satisfy an exact `Origin` allowlist and is not a residual risk of this design.
+
+**Validation evidence.** `pnpm db:validate` — valid. `pnpm lint` — 38 files, no diagnostics. `pnpm typecheck` and `pnpm build` — both workspaces pass. API integration — 1 suite, 18/18 against PostgreSQL 18.6 (the product suite did not exist yet). Playwright — 4/4. `pnpm audit` — no known vulnerabilities. Browser validation of the running stack confirmed the login flow, session restoration on reload, empty web storage, an HttpOnly refresh cookie and logout redirect behaviour.
+
+**Not validated / deferred.** Cross-tab refresh coordination; load, penetration and container scanning; deployment. No human source review.
+
+**Result.** The authentication milestone, amended to carry the hardening changes. Capability: working authentication with hardened session handling.
+
+---
+
+## 2026-09-21 — Product draft CRUD
+
+**Scope.** Draft editing and discovery only. Explicitly excluded: delete/withdraw, publish/republish, passports, uploads, analytics, admin features.
+
+**AI participation.** Pi primary on the `opencode-go/deepseek-v4.1-flash` route; two implementation subagents (API and web).
+
+**Human review.** Decision/scope review: Cristian's brief fixed the endpoint set, the ownership boundary, the draft-save contract, the atomicity requirement and the required test list. Manual validation: not performed. Source-code review: deferred.
+
+**Decisions.** Draft save semantics recorded because clients depend on them: omitted top-level field unchanged; explicit null clears; supplied scalar replaces; omitted nested section unchanged; supplied collection replaces wholly in one transaction; sustainability object updates present fields; explicit null removes it. Publication completeness and the material-total rule are deliberately not enforced at draft save.
+
+**Work performed.** `apps/api/src/products/**` with command-specific DTOs; `prisma/seed.ts` and `pnpm db:seed`; `apps/web/app/products/**` list and editor; product integration suite and Playwright product spec.
+
+**Findings / rejected approaches.** A class-field own-property bug made omitted PATCH scalars and sustainability behave as explicit nulls, silently wiping fields the client never sent; fixed to test for `undefined`, with a regression test. A Prisma relation ordering issue surfaced during the HTTP smoke and was fixed. React Hook Form, TanStack Query and Zustand were each evaluated and **rejected** for this slice as unnecessary — no frontend dependency was added.
+
+**Validation evidence.** `pnpm db:validate` — valid. `pnpm lint` — no diagnostics. `pnpm typecheck` and `pnpm build` — both workspaces pass. API integration — 2 suites, 29/29 (18 auth + 11 product) against PostgreSQL 18.6. Playwright — 6/6. `pnpm db:seed` run twice — idempotent. `pnpm audit` — no known vulnerabilities.
+
+**Not validated / deferred.** No cross-tab draft-edit coordination test; no load or penetration testing; no human source review. Uploads, publication and everything downstream remain unimplemented and untested.
+
+**Result.** The product-draft milestone. Capability: product drafts with proven optimistic concurrency.
+
+---
+
+## 2026-09-21 — AI provenance and human-review policy
+
+**Scope.** Documentation only: make the worklog represent how the project is actually built.
+
+**AI participation.** Pi primary only.
+
+**Human review.** Decision/scope review: Cristian required the correction and defined the three-part review policy and the ChatGPT provenance. Manual validation: not performed. Source-code review: not applicable.
+
+**Decisions.** Human review is reported in three separate parts and never collapsed. AI review is never reported as human review. `Not validated` must name the category.
+
+**Work performed.** Worklog policy rewritten; a reconciliation entry appended; the policy encoded in `AGENTS.md`. Historical entries were left in place at the time and are folded into their correct rounds by the normalization you are reading.
+
+**Findings / rejected approaches.** The previous `human review: none yet` wording was inaccurate because Cristian does review decisions and scope. The worklog's lint count of 54 files was stale; re-measured as 55. `pnpm lint` was the only command run in this round.
+
+**Not validated / deferred.** Nothing executable changed, so no tests, builds or deployments were run or re-run.
+
+**Result.** Folded into the product-draft milestone. Capability: an accurate evidence policy for later rounds.
+
+---
+
+## 2026-09-21 — Milestone pre-merge verification and workflow formalization
+
+**Scope.** Prepare the Product Draft milestone for merge: re-run the full gate, reconcile documentation, and record the execution workflow. Explicitly excluded: the merge itself, the next branch, and any new feature.
+
+**AI participation.** Pi primary on the `opencode-go/deepseek-v4.1-flash` route.
+
+**Human review.** Decision/scope review: Cristian requested the pre-merge verification and the workflow documentation, and specified the milestone boundary. Manual validation: not performed. Source-code review: deferred until the complete project is built.
+
+**Decisions.** The gated execution workflow (Gates 0–8) adopted as the current process, with the authority hierarchy and a mandatory end-of-pass checklist.
+
+**Work performed.** `docs/specs/10-AI-AND-DX.md` gained the adopted workflow; `AGENTS.md` gained the concise operational version, the checklist and an accurate milestone status; the Playwright product test's wait condition fixed.
+
+**Findings / rejected approaches.** The Playwright test that re-saves a draft failed intermittently: the application was correct and displayed the advanced revision, but the test's success wait matched the editor's static header text, so it queried the API before the save committed. Both product tests now poll the revision itself. This was a test-harness defect; no application code changed.
+
+**Validation evidence.** `pnpm db:validate` — valid. `pnpm lint` — **55 files, no diagnostics**. `pnpm typecheck` and `pnpm build` — both workspaces pass. API integration — 2 suites, **29/29** against PostgreSQL 18.6. Playwright — **6/6**, confirmed over three consecutive runs. `pnpm db:seed` twice — `Seeded 3 categories.` both times, with the three seed-owned categories stable. `pnpm audit` — no known vulnerabilities. The six category rows in the test database are the three seed categories plus three Playwright fixture categories created by `e2e/global-setup.ts`.
+
+**Not validated / deferred.** No load, penetration or container scanning; no Docker/Compose or VPS deployment; no human source-code review. Every feature listed as excluded from the milestone is unimplemented and therefore untested.
+
+**Result.** Folded into the product-draft milestone. Capability: a verified milestone ready for Cristian's acceptance decision.
+
+---
+
+## Standing corrections applied throughout
+
+These were once recorded incorrectly and are stated correctly in the rounds above.
+
+| Earlier statement | Correct position |
 | --- | --- |
-| Date | Calendar date of the work |
-| Task / issue | What was asked, linked to a spec or issue |
-| Model and harness | Exact model, provider label, and harness actually used |
-| Areas | Files or modules generated or modified |
-| Rejected suggestions | Model output that was not accepted, and why |
-| Human review | What a human actually read, ran, or changed — or "none yet" |
-| Checks run | Exact commands and their real results |
-| Open questions | Unresolved decisions or doubts |
+| "NestJS 12.4.0-family" | Typo. The pinned family is **12.0.4** for `@nestjs/core`, `@nestjs/common`, `@nestjs/platform-express` and `@nestjs/testing`. |
+| Roles exist as a JWT claim | Incorrect. Role is **not** in the access JWT. Current role and company are resolved authoritatively from PostgreSQL on every protected request. |
+| A same-site sibling subdomain can satisfy both CSRF controls | Incorrect under exact `Origin` allowlisting. The accepted residual risks are no-`Origin` requests from supported non-browser contexts, and compromise of the allowlisted origin. |
+| Final milestone lint count of 54 files | The verified final-milestone result is **55 files, no diagnostics**. Round-specific counts recorded earlier were correct for those rounds. |
 
-Prohibited: invented results, precise "percentage of AI-written code" claims, claiming human review that did not happen, and describing planned tests as passed.
+## Current milestone boundary
 
----
+**Included:** planning baseline; validated schema and initial migration; PostgreSQL invariants; workspace and app scaffold; authentication and session hardening; Product draft CRUD; optimistic `draftRevision` concurrency; product search, filter and pagination; editor sections for General Information, Materials, Sustainability and Certifications; deterministic category seed; integration and browser coverage for implemented behaviour.
 
-## 2026-09-21 — Supplied planning documents (pre-repository, AI-assisted)
-
-**Status:** planning drafts. No implementation, no test evidence.
-
-**Origin.** The specification set in `docs/specs/` was produced before this repository existed, with AI assistance, from the employer's assessment PDF and recruitment email plus scope input from Cristian. It was supplied as an archive (`notarify-planning-pack*.zip`), not written in-repo. Neither the assessment PDF nor the recruitment email is part of this repository.
-
-**Documents.** Eleven specs, `00-ROADMAP.md` through `10-AI-AND-DX.md`, covering scope and regulatory boundary, architecture and shared contracts, data lifecycle, authentication and security, products and files, passports/QR/PDF, analytics and caching, frontend, testing and delivery, and AI workflow.
-
-**Revision history observed.** Two pack revisions were supplied. The later revision (21 Sep 2026, 15:31) differs from the earlier one (15:14) in 7 of the 11 files — `01-ESPR-SCOPE.md` was rewritten and `00`, `02`, `03`, `05`, `06`, `09` were revised — following Cristian's scope clarification. The later revision is the one committed to `docs/specs/`.
-
-**What the documents claim about themselves.** They state that they are proposed plans rather than implementation reports; that nothing described has been built, tested, deployed, or approved by the employer; and that the assessment PDF and accompanying email remain the authoritative source of submission requirements. That framing is accurate as of this entry: **no implementation exists in this repository.**
-
-**Human review performed.** Cristian supplied the documents and the interpretation behind revision 2. This log does not claim he verified every statement in them. The documents themselves assert that understanding of each critical path must be demonstrated independently, and no line-by-line human review is claimed here.
-
-**Checks run.** None. There is no application code to build, lint, or test.
-
-**Open questions.** Every roadmap *Decisions before implementation* item remains unresolved: tenancy, product granularity, permission semantics, verification badge meaning, published-edit visibility, analytics definitions, and legal framing. See [Roadmap § Decisions before implementation](specs/00-ROADMAP.md#decisions-before-implementation).
+**Explicitly excluded:** binary asset uploads; images, documents and certificate PDFs; publication and republish; Passport/PassportVersion; public passport pages; QR; PDF export; delete/withdraw; analytics; Redis; dashboard metrics; Users/Settings; version review; Docker/Compose; VPS deployment; load, penetration and container scanning; final human source-code review.
 
 ---
 
-## 2026-09-21 — Repository setup
+## 2026-09-21 — Worklog normalization and status-banner correction
 
-**Task.** Initialize this directory as a public GitHub repository with the requested structure and documentation, using the supplied planning archive as the spec source.
+**Scope.** One-time canonical normalization of this file before the first milestone merge, plus the present-state corrections that independent verification of it surfaced. Documentation only.
 
-**Model and harness.** Pi harness (0.87.0); session model label `opencode-go/deepseek-v4.1-flash`. That label is what the harness reports and is not an independently verified provider or version identifier. Per [10-AI-AND-DX.md](specs/10-AI-AND-DX.md), architecture and security-sensitive work is intended for a stronger review route; no such review was performed for setup work and none is claimed.
+**AI participation.** Pi primary on the `opencode-go/deepseek-v4.1-flash` route, plus one `verify` agent that audited the rewrite against repository and Git evidence.
 
-**Generated or modified.** `README.md`, `.gitignore`, `AGENTS.md`, `docs/AI-WORKLOG.md` (this file); `docs/specs/*.md` extracted from the supplied archive; `.gitkeep` placeholders in `apps/api`, `apps/web`, `packages/api-client`, `prisma`, and `fixtures`.
+**Human review.** Decision/scope review: Cristian authorized the normalization and specified the canonical structure, the participants section and the correction set. Manual validation: not performed. Source-code review: not applicable — no source code changed.
 
-**Deliberately not done.** No framework scaffolded, no dependency installed, no application script or container configuration created, no Prisma schema written, no migration run, no seed data generated, no deployment step performed.
+**Decisions.** The worklog policy changed: while a milestone is active and unmerged the worklog may be reconciled and normalized for accuracy; once a milestone is merged into `main` its evidence becomes stable, and later material corrections must be explicit and traceable through Git. Recorded in `AGENTS.md` and `docs/specs/10-AI-AND-DX.md`. Gates 0–8 are unchanged.
 
-**Suggestions rejected or corrected.**
-- The agent deleted the already-extracted `notarify-planning/` staging folder without asking, treating it as a disposable artifact. Cristian flagged this; the folder was restored from the archive and reconciled against `docs/specs/`. It is excluded from the commit.
-- Committing the archive itself, and duplicating the specs under both `docs/specs/` and the original folder name, were both rejected in favour of a single canonical spec location.
+**Work performed.** This file rewritten into the structure described in its normalization note; the policy amended in both owning documents; the rounds above reconstructed from Git history, commit messages and the repository rather than from memory.
 
-**Human review performed.** Cristian reviewed the setup during the task, corrected the staging-folder removal, and chose `docs/specs/` as the single spec location. No further review of the generated documents is claimed.
+**Findings / rejected approaches.** Independent verification of the rewrite produced four findings, all resolved: the auth round claimed two integration suites where only one existed at that commit; the module-boundary text in `AGENTS.md` still said no seed existed; bare `prisma …` command names were replaced with the exact forms used, since this project never invokes Prisma without `--config prisma7.config.ts`; and both `README.md` and `docs/IMPLEMENTATION-DECISIONS.md` still opened by claiming no application code existed. Rejected: preserving known-wrong statements behind later corrections, and inventing commit identifiers to make every round look symmetrical.
 
-**Checks actually run.**
-- `diff -r` — extracted specs versus the supplied archive, and versus the restored staging folder: identical at import time, no differences.
-- Secret-pattern search (`grep -riE` over `password|secret|api[_-]?key|token|private key|AKIA…`) across the specification documents: all matches are descriptive security-design text; no credentials, keys, or tokens present.
-- `gitleaks` and `trivy` were **not** run — neither is installed on this machine. No secret-scanning or vulnerability-scanning result is claimed.
-- No test suite, linter, type checker, or build ran: none exists yet.
+**Validation evidence.** `pnpm lint` — 55 files, no diagnostics. `git status` — documentation files only; no executable code, test or configuration file changed.
 
-**Open questions.** Whether to delete the retained local `notarify-planning/` copy; whether a license should be added; and the unresolved roadmap decisions listed in the previous entry.
+**Not validated / deferred.** No tests, builds, migrations or scans were run or re-run, because nothing executable changed. Human source-code review remains deferred until the complete project is built.
 
----
-
-## 2026-09-21 — Pre-implementation schema and lifecycle review
-
-**Task.** Complete Tasks 1–5 of the supplied schema-review task: reconcile the eleven planning specs, record provisional decisions and dependency compatibility, draft the PostgreSQL Prisma schema, and state high-risk lifecycle enforcement boundaries.
-
-**Model and harness.** Pi harness (0.87.0); session model label `openai-codex/gpt-5.6-sol`. This is the harness-reported label, not an independently verified provider/version claim.
-
-**Generated or modified.** Exactly `docs/IMPLEMENTATION-DECISIONS.md`, `prisma/schema.prisma`, and `docs/AI-WORKLOG.md` (this appended entry). Existing `.gitkeep` files and planning specs were not changed.
-
-**Work actually performed.** Read `AGENTS.md`, the existing worklog, and all eleven `docs/specs/*.md` documents; reconciled contradictions/gaps against the supplied task; consumed the parallel official-source dependency verification record dated 2026-09-21; consulted official Prisma 7 schema/configuration documentation; drafted the provisional PostgreSQL schema and SQL/application enforcement register; manually cross-checked model/lifecycle coverage; and resolved an independent reviewer finding by adding the `synthetic` discriminator to the analytics daily rollup key so seed provenance survives raw-event purge.
-
-**Suggestions rejected or deferred.** No generic repository/base-class layer, microservices, queues/event buses, CASL/permission tables, tenant onboarding, object storage/upload volume, public historical browsing, persisted/browser-generated PDFs, external legal/certification/geolocation integration, Kubernetes/Terraform, bespoke MCP service, or speculative gateway was added. Redis client, Argon2id package, image re-encoder, file-signature detector, Passport strategy/direct peers, and rate-limit backing store remain unselected. Tenancy, product granularity, permissions, review wording, published-edit visibility, analytics definitions/retention, auth lifetime/concurrency policy, limits, historical visibility, and Users/Settings scope remain human decisions at their documented gates.
-
-**Human review performed.** none yet. An independent architect/security review is still required before primary-owned commit; no AI review is represented as human review.
-
-**Official-source checks actually performed.** The supplied verified matrix provided publisher-maintained registry, release, license, and compatibility links for the pinned baseline. Official Prisma 7 documentation was read for the `prisma-client` generator/output, `prisma.config.ts` datasource URL ownership, PostgreSQL native mapping, and relation syntax. The original assessment PDF/email are absent, so no independent comparison against them was possible.
-
-**Checks actually run.** Manual document/schema cross-check only. **Prisma schema validation: NOT PERFORMED** — Prisma CLI is unavailable and installation is forbidden. **Migration generation/application: NOT PERFORMED.** **Dependency installation/audit: NOT PERFORMED.** **Application tests/build/lint/typecheck/Compose/deployment: NOT PERFORMED** because no scaffold or dependencies exist.
-
-**Open questions.** Validate this draft with the exact pinned Prisma CLI 7.10.0 before creating the initial migration, then test migration SQL and the refresh/publication/asset/analytics transactions against real PostgreSQL. The product and dependency selections deferred above remain open.
-
----
-
-## 2026-09-21 — Independent review round (same session)
-
-**Task.** Independent review of the schema draft and decision record before commit, per Task 6 of the engineered task.
-
-**Model and harness.** Pi harness (0.87.0). Reviewers were separate read-only agents on their own model routes; this entry does not claim their provider labels, which were not recorded by the primary.
-
-**Review performed.**
-- **Security lens (completed):** reported one schema-level finding — `AnalyticsEvent.synthetic` provenance would be lost when raw rows roll into `AnalyticsDaily`, whose uniqueness key lacked a provenance discriminator, so seeded/synthetic and real counts could merge and become indistinguishable after raw purge. **Disposition:** already resolved in the authored artifacts before the finding landed — `AnalyticsDaily` carries `synthetic Boolean @default(false)`, the composite unique key and indexes include it, and the enforcement register and lifecycle matrix describe the discriminator. The primary additionally corrected one stale reference in the lifecycle matrix that still showed the old three-column key.
-- **Data-integrity / Prisma-syntax lens (NOT completed):** the second reviewer was cancelled before yielding because the session budget was nearly exhausted. No findings from that lens are claimed, and the schema has therefore **not** received a complete independent read for FK/delete-action, relation-cycle, index-coverage, or Prisma-syntax correctness.
-- No reviewer edits were made by the reviewers themselves; review was report-only.
-
-**Human review performed.** none yet. The reviews above are AI reviews and are not represented as human review.
-
-**Checks actually run by the primary.**
-- `git status --porcelain` — exactly `M docs/AI-WORKLOG.md`, `?? docs/IMPLEMENTATION-DECISIONS.md`, `?? prisma/schema.prisma`; no existing file deleted, moved, or renamed.
-- Long-line completeness check (`awk` over lines >700 chars) — confirmed the very long table/lifecycle paragraphs are complete sentences, not truncated content.
-- Trailing-whitespace scan — only two intentional Markdown hard-break lines (trailing double space in the header block).
-- `git check-ignore -v notarify-planning/00-ROADMAP.md` — matched `.git/info/exclude`, confirming the local duplicate cannot enter commits.
-- Explicit-pathspec staging and post-push upstream verification.
-
-**Still unvalidated.** Prisma schema validation (CLI unavailable; installation forbidden), migration SQL execution, PostgreSQL constraint/transaction behavior, and all dependency installation/audit remain unperformed. The incomplete data-integrity review lens should be re-run before the initial migration.
-
----
-
-## 2026-09-21 — Completed integrity sweep and review findings
-
-**Task.** Finish the data-integrity / Prisma-syntax review lens that an earlier reviewer had not completed.
-
-**Model and harness.** Pi harness (0.87.0), fast/cheap review route. Reviewer agents are AI, not humans.
-
-**Findings and dispositions.**
-- **Fixed — likely Prisma compile blocker:** `Passport` declared no opposite back-relation fields for `AnalyticsEvent.passport` and `AnalyticsDaily.passport`. Prisma requires a back-relation for every relation, so this would most likely fail `prisma validate`/`generate`. Added `analyticsEvents AnalyticsEvent[]` and `analyticsDaily AnalyticsDaily[]` to `Passport`. **Requires CLI validation to confirm** — not proven here.
-- **Fixed earlier in this round — uncreatable composite FK:** `RefreshToken` lacked the candidate key `@@unique([id, sessionId])` that the register's `RefreshToken_successor_same_session_fkey` requires; added.
-- **Fixed earlier in this round — documentation overclaim:** the schema overview asserted no binary values in JSON/snapshot fields; JSONB cannot guarantee that, so it is now stated as a `..._no_binary_tx` / `safe_metadata_tx` / `metadata_bounds_tx` projection rule.
-- **Open (documentation, not a defect):** blanket `Restrict` on `Material`, `Sustainability`, `Certification`, `ProductImage`, `ProductDocument` means a `Product` cannot be hard-deleted until draft children are removed first. Retained/history paths must stay restrictive; an explicit draft-cleanup transaction or purge policy is still needed and is not yet documented.
-- **Open (index coverage, not a defect):** no `Product` index covers `originCountry` filtering, and none aligns `companyId` + `deletedAt` with the documented deterministic `id` tie-breaker. Logically correct without them; add only if query plans justify.
-
-**Verified correct by the sweep.** Both documented composite-FK rules now have matching candidate keys; no `onDelete` cascade can erase `PassportVersion`, `PassportVersionAsset`, `AssetContent`, `AuditEvent`, or `AnalyticsEvent`; the tsvector/GIN search index is correctly assigned to future migration SQL rather than claimed in the schema.
-
-**Not performed / not claimed.** Prisma schema validation, migration generation, PostgreSQL execution, dependency installation, and all tests/builds remain **NOT PERFORMED**. The back-relation change above is reasoned from Prisma's documented requirement, not from a successful validation run.
-
----
-
-## 2026-09-21 — Schema validation and initial migration (build/schema-validation)
-
-**Task.** Turn the reviewed schema draft into a validated, reproducible PostgreSQL foundation, without starting application implementation.
-
-**Model and harness.** Pi harness (0.87.0). Implementation and integration ran on the primary `opencode-go/deepseek-v4.1-flash` route; an independent verification pass was run on a separate fast-model subagent. No GPT-route model participated in this round. Reviewers are AI, not humans.
-
-**Locked decisions.** Deployment tenancy (one company per deployment) and product granularity (one serialized item per product, unique `(companyId, serialNumber)`, serials reserved after soft delete) were adopted from the round brief and moved out of the unresolved list. No other open decision was touched.
-
-**Toolchain added.** Root ESM `package.json` with exact pins only, `pnpm-workspace.yaml`, `prisma7.config.ts`, `.env.example`, `.gitignore` entry for the generated client, `pnpm-lock.yaml`. Installed: prisma 7.10.0, @prisma/client 7.10.0, @prisma/adapter-pg 7.10.0, pg 8.23.0, dotenv 18.0.1, typescript 6.0.3, on Node 24.21.0 and pnpm 12.5.1. The dependency matrix had missed the required driver adapter; corrected here.
-
-**Commands executed and actual results.**
-- `pnpm install` — exit 0, 159 packages. Initially exit 1 with `ERR_PNPM_IGNORED_BUILDS`; resolved with `pnpm approve-builds --all`, which wrote an `allowBuilds` map into `pnpm-workspace.yaml` (an earlier draft of this entry and of the corresponding commit message said `onlyBuiltDependencies`; pnpm 12 uses `allowBuilds`, and the file is authoritative).
-- `prisma validate` — "The schema at prisma/schema.prisma is valid".
-- `prisma generate` — Prisma Client 7.10.0 generated in 117 ms.
-- `prisma migrate dev --create-only` — created `20260921152150_init`.
-- `prisma migrate dev` — applied; no follow-up migration, no drift.
-- `prisma migrate deploy` against a fresh database — all migrations applied.
-- `prisma migrate status` — database schema up to date.
-- `psql` on PostgreSQL 18.6 — 21 tables, 30 FKs, 16 CHECKs, 79 indexes.
-- `prisma/verification/invariant-checks.sql` — 11 checks (12 assertions) all passed, inside one rolled-back transaction.
-
-**Schema changes forced by real validation.** A hand-written composite FK for the three cross-table invariants was written into the migration and Prisma silently removed it on the next `migrate dev`, because it reconciles foreign keys it does not model. The fix was to express the composite foreign keys as composite relations in `schema.prisma`, which required adding `@@unique([currentVersionId, id])` and `@@unique([replacedById, sessionId])`. This is a better outcome than the planned hand-written SQL: the constraints are now Prisma-managed and cannot drift. `AnalyticsEvent.version` now targets `PassportVersion(id, passportId)`.
-
-**Suggestions rejected or deferred.** No application scaffold, no Nest/Next project, no Compose stack, no seed script, no trigger-based immutability, no retention job, no Redis. The Prisma CLI offered 8.0.0-rc.15 as an update; declined, as recorded earlier.
-
-**Human review performed.** none yet.
-
-**Not performed.** Application behaviour, Nest/Next build, lint, typecheck, dependency vulnerability audit, Compose, deployment. The PostgreSQL instance was a disposable container.
-
-**Open questions.** The unresolved product and policy assumptions in the decision record remain open, now excluding tenancy and granularity. Schema-level validation does not exercise any transactional rule.
-
-**Independent verification pass (fast-model subagent, same round).** Confirmed by re-running: `prisma --version` pins (Node v24.21.0, pnpm 12.5.1, Prisma/client 7.10.0, TS 6.0.3), `db:validate` valid, `migrate status` up to date, all 12 invariant assertions PASS with the claimed SQLSTATE classes, and live counts of 21 tables / 30 FKs / 16 CHECKs / 79 indexes. It also re-read the enforcement register against the migration SQL and found every assigned rule present.
-
-Corrections it forced, applied in the following commit:
-- `pnpm-workspace.yaml` uses `allowBuilds`, not `onlyBuiltDependencies`; the earlier claim was wrong and is corrected here and in the file's comment.
-- The decision record's status line still said "no migration or package manifest exists", and the enforcement register preamble still said no SQL migration had been created or applied. Both were stale after this round and are corrected.
-- `PassportVersion_source_draft_revision_nonnegative_ck` existed in the migration without being named in the register; the numeric/range row now names all fourteen CHECK constraints that were actually created.
-- The composite-FK note was reworded: the constraints *are* present in the migration, generated by Prisma from the schema; what was abandoned was the hand-written SQL form.
-
----
-
-## 2026-09-21 — Repository truthfulness pass and publish-permission correction
-
-**Task.** Before any scaffolding, correct stale present-state claims written by earlier planning rounds so later agents receive accurate instructions. Documentation only.
-
-**Model and harness.** Pi harness (0.87.0), primary `opencode-go/deepseek-v4.1-flash` route. No subagents, no GPT-route models. No human review occurred.
-
-**Stale claims corrected.**
-- `AGENTS.md` described the repository as having no package manager, no dependencies, no supported commands, and no schema validation or migration. It now states that the toolchain and initial migration exist and are verified, that there is still no application code, and it lists the only four commands that actually run. The unsupported command names remain listed as proposals, explicitly marked as not working.
-- `README.md` claimed "repository setup only" with nothing to run and no dependencies. It now documents the working database commands and scopes the missing pieces to the applications.
-- `docs/IMPLEMENTATION-DECISIONS.md` still carried an unresolved row asserting "Admin alone publishes". Replaced with the recorded project decision.
-
-**Decision recorded.** Publishing and republishing are **not** Admin-only. Editor: read private product data and previews, create/edit drafts with child data and assets, publish and republish, read aggregate analytics. Admin: all of that plus delete/withdraw, version review, raw analytics and audit access, user/role management, company settings. This supersedes the earlier Admin-only proposal. The brief does not define permissions, so it remains a project choice rather than a Notarify requirement, and publish authorization stays **unimplemented** — nothing may gate publish to ADMIN in code yet.
-- `docs/specs/04-AUTH-AND-SECURITY.md` split its publish row from the delete/review row and gained a dated note, so the older Admin-only text is visibly superseded rather than silently rewritten.
-
-**Deliberately not changed.** Historical proposals, rejections and unresolved items elsewhere in the specs were left intact; no planning decision was retroactively restated as if it had always been correct. No product requirement was changed.
-
-**Checks run.** Documentation edits only. No build, test, linter, typecheck, Prisma command or database command was run in this pass.
-
----
-
-## 2026-09-21 — Workspace scaffold and authentication slice (build/schema-validation)
-
-**Task.** Minimal truthful pnpm/Nest/Next scaffold, the authentication slice (login, refresh, logout, me), a strict refresh-token transaction proven against real PostgreSQL, a minimal browser auth flow, and test/build/lint/typecheck/audit evidence.
-
-**Model and harness.** Pi harness (0.87.0), `opencode-go/deepseek-v4.1-flash` route for the primary and for both implementation subagents. No GPT-route model was used. Reviewers are AI, not humans; human review is `none yet`.
-
-**Added.** `apps/api` (NestJS 12.4.0-family, Prisma 7.10.0 via `@prisma/adapter-pg`, Argon2id through `@node-rs/argon2`, cookie-parser, JWT access tokens, strict refresh rotation) and `apps/web` (Next 16.3.5 App Router, Tailwind 4 + daisyUI, in-memory access token only). Root: `biome.json`, `tsconfig.base.json`, workspace scripts, CORS configuration, dependency overrides.
-
-**Commands executed and actual results.**
-- `pnpm install --no-frozen-lockfile` — exit 0
-- `pnpm db:validate` — schema is valid
-- `pnpm lint` (Biome 2.5.14) — 34 files checked, no diagnostics
-- `pnpm typecheck` — both workspaces pass
-- `pnpm build` — both workspaces pass
-- `pnpm --filter @notarify/api test:integration` — 1 suite, **9/9 tests pass** against PostgreSQL 18.6
-- `pnpm audit` — **no known vulnerabilities** (after the overrides below)
-- Browser validation against the real stack (Next on :3001, Nest on :3000, PostgreSQL 18.6)
-
-**Browser evidence.** Wrong password returns the generic error and stays on `/login`. Correct password logs in and renders "Signed in as demo@example.test, Role: EDITOR". `/dashboard` shows email, role and company. A full page reload restores the session through the silent refresh. `localStorage` and `sessionStorage` hold zero keys and `document.cookie` is empty, confirming the access token stays in memory and the refresh cookie is HttpOnly. Logout returns to `/login`, and a subsequent visit to `/dashboard` redirects to `/login` with `POST /auth/refresh` answering 401.
-
-**Defects found and fixed during this round.**
-1. **Biome's recommended preset silently broke NestJS dependency injection.** `lint/style/useImportType` rewrote injectable classes and DTO classes (`PrismaService`, `ConfigService`, `JwtService`, `AuthService`, `LoginDto`) into `import type`. The suite went from 9/9 passing to 9/9 failing with "Nest can't resolve dependencies of the PrismaService". It also would have erased the DTO metadata `ValidationPipe` depends on, silently disabling request validation. `useImportType` is now off, with the reason recorded in `biome.json`. Pure types and interfaces still use `import type` where `emitDecoratorMetadata` would otherwise emit them.
-2. **No CORS configuration existed**, so the cross-origin credentialed browser flow could not work. Added `CORS_ORIGIN` to the validated config (required in production, defaulting to the Next port in development) and `enableCors` with an exact origin plus credentials.
-3. **pnpm rewrote `allowBuilds` with placeholder strings** ("set this to true or false"), which made every pnpm command fail. The two optional helpers are now explicitly denied and the NestJS same-day-release exclusion is documented.
-4. **Three transitive advisories** (`mysql2` twice, `deepmerge-ts`) reached the tree through the Prisma CLI, which pins `mysql2@3.15.3`. Prisma has no patched 7.x release, so targeted pnpm overrides pin `mysql2@3.24.4` and `deepmerge-ts@8.0.2`; the toolchain was re-verified afterwards. These paths are MySQL-only and unreachable from this PostgreSQL application, but they were fixed rather than suppressed.
-
-**Deliberately not implemented.** Product CRUD, editor screens, publication/passport behaviour, publish authorization, uploads, asset processing, QR, PDF, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenant onboarding, CASL or permission tables, generic repositories, Docker Compose and deployment. Roles exist only as a JWT claim and in `GET /auth/me`; **nothing is gated to ADMIN**, consistent with the recorded decision that publishing is not Admin-only.
-
-**Not verified.** No end-to-end Playwright suite; browser validation was manual and is not a regression test. No load, penetration or container scan. The PostgreSQL instance is a disposable container, not the project stack. Application behaviour beyond the auth slice does not exist.
-
----
-
-## 2026-09-21 — Authentication hardening pass (build/schema-validation)
-
-**Task.** Close the remaining auth acceptance gaps without redesigning the architecture: Origin enforcement, authoritative actor resolution, generic login failures, idempotent logout, runtime token refresh in the browser, shared app configuration, HTTP hardening, tests and a Playwright regression.
-
-**Model and harness.** Pi harness (0.87.0), `opencode-go/deepseek-v4.1-flash` route for the primary and both subagents. No GPT-route model. Reviewers are AI; human review is `none yet`.
-
-**Fixed.**
-1. **Origin enforcement.** `/auth/login`, `/auth/refresh` and `/auth/logout` now validate `Origin` against the configured application origin and reject a mismatch with 403 `INVALID_ORIGIN`. A missing `Origin` is deliberately allowed for non-browser clients, tests and curl, with the rationale in code and coverage for both cases. CORS is not treated as CSRF protection anywhere.
-2. **Authoritative actor.** `AccessTokenGuard` now establishes the full actor in one place — signature, algorithm, issuer, audience, expiry, session existence, session/subject match, revocation, session expiry, user existence, user active, and fresh role/companyId from PostgreSQL — and attaches it to the request. `/auth/me` consumes it with no second lookup, and a probe controller in the test suite proves an arbitrary protected endpoint gets the same treatment. Roles remain absent from the JWT.
-3. **Generic login failures.** Unknown email, wrong password and disabled account now return an identical 401 `INVALID_CREDENTIALS`; the real reason is logged server-side only. A dummy Argon2 verification keeps the disabled path from becoming an obvious timing oracle.
-4. **Idempotent logout.** Returns 204 when the session is active, already revoked, the token is unknown, or the cookie is absent, and resolves the session only from the presented cookie digest.
-5. **Shared application configuration.** `apps/api/src/application.ts` applies middleware, pipes, Helmet, request IDs and Origin checks; `main.ts` and the integration tests both use it, so tests exercise real configuration.
-6. **HTTP hardening.** Helmet, per-request ID (accepting a well-formed inbound `x-request-id`, otherwise `randomUUID`), the ID echoed in a response header and included as `requestId` in the stable error body, and minimal logging that never records cookies, authorization headers, passwords or refresh tokens.
-7. **Runtime token refresh.** The web client performs exactly one refresh and one retry on a 401 from a protected call, sharing a single in-flight refresh promise so concurrent 401s do not stampede, and clears state to `/login` when refresh fails. The token stays memory-only; cross-tab coordination remains a documented follow-up.
-8. **Access-token lifetime is configurable** via `ACCESS_TOKEN_TTL_SECONDS` (validated, 1–86400, default 600) so the browser test can exercise refresh in seconds instead of sleeping ten minutes.
-9. **Playwright regression** (`e2e/`, run with `pnpm test:e2e`): login, session restoration on reload with empty web storage, runtime refresh with exactly one 200 on `/auth/refresh`, and logout with protected-route redirect. It starts the built API and web app itself.
-
-**CSRF decision.** Spec 04 asks for an explicit CSRF token on cookie mutations. It is **not** implemented, and that is recorded rather than skipped: section B3 of `docs/IMPLEMENTATION-DECISIONS.md` states the reasoning (`SameSite=Lax` plus server-side `Origin` allowlisting on a same-site topology), the residual risk (same-site subdomain attacker; a stolen cookie is unaffected either way), and the conditions that would require revisiting it. Spec 04 carries a dated note pointing at that decision so the deviation is visible.
-
-**Commands executed and actual results.**
-- `pnpm db:validate` — schema is valid
-- `pnpm lint` — 38 files checked, no diagnostics
-- `pnpm typecheck` — both workspaces pass
-- `pnpm build` — both workspaces pass
-- `pnpm --filter @notarify/api test:integration` — 1 suite, **18/18 pass** against PostgreSQL 18.6
-- `pnpm test:e2e` — **4/4 pass** (login, session restore, runtime refresh, logout)
-- `pnpm audit` — no known vulnerabilities
-
-**Not verified.** No cross-tab refresh coordination (explicitly deferred). No load, penetration or container scan. No dependency-age or licence review beyond `pnpm audit`. The database remains a disposable container. Every product feature is still absent and untested.
+**Result.** Folded into the product-draft milestone, together with the worklog normalization and the status-banner correction. Capability: a canonical, reviewer-friendly evidence record. The gate that remained next at that point was Cristian's milestone acceptance decision.

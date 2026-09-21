@@ -78,3 +78,59 @@ Before considering a scope complete, Cristian should be able to explain its main
 8. Explain a dependency choice, one rejected alternative and one known limitation.
 
 If a critical section cannot be explained, simplify it or work through it before submission. This is a practical completion gate, not wording to conceal AI use.
+
+## Adopted execution workflow (2026-09-21)
+
+The planning sections above describe the intended division of work. This section records the **adopted** execution contract actually used from the Product Draft milestone onward. It does not replace the planning text; it supersedes it as the current process.
+
+Every meaningful implementation or verification pass runs these gates in order. The concise operational version agents read first lives in `AGENTS.md`.
+
+### Gate 0 — establish repository truth
+
+Read `AGENTS.md`; inspect branch, HEAD and working tree; read the owning specs for the requested slice and the relevant recorded decisions; read the current AI worklog; identify stale present-state documentation; identify any unresolved decision whose deadline this slice reaches. Do not implement from stale assumptions. If `AGENTS.md` contradicts the repository, correct it before feature work or explicitly include the correction in the pass.
+
+### Gate 1 — scope and decision gate
+
+Before implementing, establish: the exact goal; explicitly in-scope and out-of-scope behaviour; shared contracts affected; unresolved decisions this slice requires; required tests and evidence; the exit condition. **No unresolved material product, security or architecture decision may be silently selected.** If such a decision reaches its implementation deadline, present the options and stop for Cristian's decision unless his prompt already selects one, and record the chosen result before implementing behaviour that depends on it. An earlier AI recommendation is not human approval, and scope is not expanded because an adjacent feature looks convenient.
+
+### Gate 2 — implementation
+
+Implement only the approved slice. Preserve previously proven invariants unless a demonstrated defect requires changing them. Use small logical commits. Do not modify `main` during active milestone work, and do not create the next milestone branch early.
+
+### Gate 3 — focused independent verification
+
+After the primary implementation is internally green, run a focused independent AI verification matched to the risk: auth → session, replay and authorization boundaries; drafts → ownership, concurrency and mass assignment; assets → MIME, signature, immutability and access; publication → transactional snapshot, versioning and idempotency; analytics → semantics, privacy and aggregation boundaries. A second AI agreeing is not proof by itself; findings must be resolved or recorded. Escalate to a more expensive reviewer only when the risk or a finding justifies it, never for ceremony.
+
+### Gate 4 — executable validation
+
+Run the exact applicable quality gates: schema validation where relevant, lint, typecheck, production build, real PostgreSQL integration tests, relevant Playwright tests, seed validation where relevant, dependency audit, and milestone-specific checks. Later passes add security, container and deployment checks once those capabilities exist. Do not create fake scripts for gates that are not implemented, and do not report a check as passed unless it ran against the relevant final commit state.
+
+### Gate 5 — end-of-pass repository truthfulness reconciliation (mandatory)
+
+Before declaring a pass complete, re-read and reconcile `AGENTS.md`, README/current-state documentation, `docs/IMPLEMENTATION-DECISIONS.md`, `docs/AI-WORKLOG.md`, and any owning spec whose adopted behaviour changed. `AGENTS.md` must be updated whenever the repository's actual state changed, and must accurately state what is implemented, what is explicitly not, supported commands, current test suites and counts, proven invariants, client/server contracts agents must preserve, unresolved decisions relevant to future work, and known warnings or limitations. This is not optional cleanup: a pass is not complete while `AGENTS.md` describes the state from before it. The worklog policy is: **during an active, unmerged milestone the AI worklog may be reconciled and normalized for accuracy; once a milestone is accepted and merged into `main`, its completed historical evidence becomes stable, and later material corrections must be explicit and traceable through Git rather than silently rewritten.** Historical planning prose is not silently rewritten, adopted behaviour may be clarified with dated notes, and stale present-state claims must not survive merely because they were once true.
+
+### Gate 6 — completion report and stop
+
+Push the working branch; report final HEAD, exact commands and results, decisions made, defects found and fixed, unresolved items, what remains unvalidated, and the recommended next slice. Then stop. Do not automatically merge, create the next branch, start the next milestone, implement the recommended slice, or settle the next slice's unresolved decisions. A successful pass grants permission to report readiness, not permission to advance the project.
+
+### Gate 7 — Cristian decision gate
+
+Cristian reviews the completion report and the core decisions. For this project's current human workflow: decision and scope review happen during development; human manual validation happens only when he actually performs it; source-code review is intentionally deferred until the complete project is built. The next action occurs only after he explicitly decides — another correction pass, milestone acceptance, a milestone merge, an unresolved product decision, or a new scoped branch. Approval is never inferred from silence or from green automated tests.
+
+### Worklog normalization
+
+`docs/AI-WORKLOG.md` is the canonical evidence record. It may be normalized while a milestone is still unmerged — folding corrections into the rounds where they belong so a reader does not replay a chain of later corrections. Once a milestone is accepted into the published history, its evidence is stable, and later material corrections must be explicit and traceable in subsequent commits.
+
+### Gate 8 — milestone merge
+
+There is no permanent `develop` branch. Milestone branches use scoped names (`build/product-drafts`, `build/assets`, `build/publication`, `build/analytics`). A milestone branch merges into `main` only after Cristian explicitly approves the merge. Afterwards, verify the resulting `main`, delete obsolete ancestor branches once their commits are reachable from `main`, and create the next milestone branch from the updated `main`. Do not maintain chains of unmerged milestone branches, and do not merge historical ancestor branches separately when the accepted milestone already contains them.
+
+### Decision authority
+
+1. Employer assessment requirements, when available and unambiguous.
+2. Recorded project decisions approved by Cristian.
+3. Current owning specs and contracts.
+4. Approved task scope for the current pass.
+5. AI recommendations.
+
+AI recommendations do not become project decisions merely because they were written in a spec, worklog, completion report or previous prompt. For material ambiguity, stop at the relevant gate rather than deciding silently.

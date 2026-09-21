@@ -1,9 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { type INestApplication, ValidationPipe } from '@nestjs/common'
+import {
+  BadRequestException,
+  HttpStatus,
+  type INestApplication,
+  ValidationPipe,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { ApiException } from './common/api-exception.js'
 import type { HttpResponse, ParsedRequest } from './common/http-types.js'
 import type { AppEnvironment } from './config/configuration.js'
+import { CreateProductDto } from './products/dto/create-product.dto.js'
+import { ListProductsQueryDto } from './products/dto/list-products-query.dto.js'
+import { PatchProductDto } from './products/dto/patch-product.dto.js'
 
 const require = createRequire(import.meta.url)
 const cookieParser = require('cookie-parser') as () => (
@@ -43,6 +52,17 @@ export function configureApplication(app: INestApplication): void {
   })
   app.useGlobalPipes(
     new ValidationPipe({
+      exceptionFactory: (errors) => {
+        const isProductValidation = errors.some(
+          ({ target }) =>
+            target instanceof CreateProductDto ||
+            target instanceof PatchProductDto ||
+            target instanceof ListProductsQueryDto,
+        )
+        return isProductValidation
+          ? new ApiException(HttpStatus.BAD_REQUEST, 'VALIDATION_ERROR', 'Invalid product request.')
+          : new BadRequestException(errors)
+      },
       forbidNonWhitelisted: true,
       transform: true,
       whitelist: true,

@@ -50,8 +50,14 @@ export default function HomePage() {
             <p className="text-sm text-base-content/70">Role: {user.role}</p>
             <div className="card-actions mt-4">
               <Link
-                href="/dashboard"
+                href="/products"
                 className="btn btn-primary focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+              >
+                Manage products
+              </Link>
+              <Link
+                href="/dashboard"
+                className="btn btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
               >
                 View account status
               </Link>

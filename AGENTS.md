@@ -4,15 +4,19 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 ## Current status
 
-**Schema, toolchain and the authentication slice exist. Everything else does not.** The pnpm workspace, the pinned Prisma 7 toolchain, the initial PostgreSQL migration and a minimal NestJS API plus Next.js frontend are in place.
+**Milestone: Product Draft.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified. Everything downstream of drafts is not.
 
 Implemented:
-- `apps/api` — NestJS 12.0.4 family with `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout` and `GET /auth/me`, Prisma 7.10.0 through `@prisma/adapter-pg`, Argon2id verification, JWT access tokens, and strict refresh-token rotation.
-- `apps/web` — Next 16.3.5 App Router with a login page, an authenticated workspace view, an account-status page and logout.
+- **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys.
+- **`apps/api`** — NestJS 12.0.4 family, Prisma through `@prisma/adapter-pg`.
+  - Auth: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`; Argon2id; JWT access tokens carrying **no role claim**; strict refresh rotation; Origin enforcement on cookie mutations; Helmet and request IDs.
+  - Catalog: `GET /categories`, `POST /products`, `GET /products` (bounded pagination, category/country/date filters, PostgreSQL full-text search), `GET /products/:id`, `PATCH /products/:id` with atomic `draftRevision` concurrency.
+- **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Materials, Sustainability and Certifications.
+- **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product CRUD, editor screens, publication and passport behaviour, publish authorization, uploads, asset processing, QR, PDF, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenancy, seeding, and any Docker or Compose configuration.
+Not implemented, and not to be assumed: product delete/withdraw, publication and republish, publish authorization, Passport/PassportVersion, public passport pages, binary asset uploads, ProductImage, ProductDocument, certification PDFs, company logo, QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenancy onboarding, Docker/Compose and deployment.
 
-Verified on 2026-09-21: `prisma validate` passes, `prisma generate` succeeds, migration `20260921152150_init` applies cleanly to PostgreSQL 18.6, the schema invariants in `prisma/verification/invariant-checks.sql` pass, Biome reports no diagnostics across 38 files, both workspaces typecheck and build, the API's 18 integration tests pass against real PostgreSQL, the 4 Playwright auth tests pass against the built stack, and `pnpm audit` reports no known vulnerabilities. Coverage stops there — **no product feature exists and none is tested**.
+Verified on 2026-09-21 by re-running the full milestone gate from the final branch state: `prisma validate` passes; `pnpm lint` reports no diagnostics across 55 files; both workspaces typecheck and build; the API's 29 integration tests in 2 suites pass against PostgreSQL 18.6; the 6 Playwright tests pass against the built stack; `pnpm db:seed` is idempotent; `pnpm audit` reports no known vulnerabilities.
 
 ## The specs are authoritative
 
@@ -51,11 +55,11 @@ Still open: permission semantics beyond publishing, verification badge meaning, 
 
 ## Module boundaries
 
-- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common` and `src/auth`; the generated Prisma client lives in `src/generated` and is not committed.
-- `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow only.
+- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth` and `src/products`; the generated Prisma client lives in `src/generated` and is not committed.
+- `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow, the product list and the product draft editor.
 - `packages/api-client` — reserved for generated API types; **still empty**.
-- `prisma` — schema, migrations, and `verification/invariant-checks.sql`. No seed exists.
-- `fixtures` — reserved for fictional seed data; **still empty**.
+- `prisma` — schema, migrations, `seed.ts` (run with `pnpm db:seed`) and `verification/invariant-checks.sql`.
+- `fixtures` — reserved for fictional sample assets; **still empty**. Deterministic seed data currently lives in `prisma/seed.ts`.
 
 Boundaries that are not negotiable:
 
@@ -79,7 +83,8 @@ Supported today. Runtime is Node 24.21.0 with pnpm 12.5.1 — the pinned version
 | `pnpm build` | Build every workspace |
 | `pnpm test` | Run every workspace's tests |
 | `pnpm --filter @notarify/api test:integration` | Jest integration tests against the real PostgreSQL at `DATABASE_URL` |
-| `pnpm test:e2e` | Playwright auth regression against the built API and web app (starts both) |
+| `pnpm db:seed` | Idempotent seed of fictional categories (`prisma/seed.ts`) |
+| `pnpm test:e2e` | Playwright regression for auth **and** product drafts against the built API and web app (starts both) |
 
 `prisma7.config.ts` is deliberately not auto-detected, so every Prisma invocation must pass `--config prisma7.config.ts`. The scripts already do; pass it yourself if you call Prisma directly.
 
@@ -87,11 +92,11 @@ The API has no `dev` script: build it and run `node apps/api/dist/src/main.js`. 
 
 The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGIN`; see `.env.example`. Startup fails fast on missing or unsafe configuration.
 
-**Not supported yet — do not document or invoke them as if they work:** `check`, `test:unit`, `db:seed`, `openapi:export`, `security:check`, `compose:up`. They remain proposals from the roadmap. There is no Docker or Compose configuration in this repository; the database used for testing is a disposable container.
+**Not supported yet — do not document or invoke them as if they work:** `check`, `test:unit`, `openapi:export`, `security:check`, `compose:up`. They remain proposals from the roadmap. There is no Docker or Compose configuration in this repository; the database used for testing is a disposable container.
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (18 tests, real PostgreSQL) and `e2e/auth.spec.ts` via `pnpm test:e2e` (4 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts` and `apps/api/test/products.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (2 suites, 29 tests, real PostgreSQL); `e2e/auth.spec.ts` and `e2e/products.spec.ts` via `pnpm test:e2e` (6 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.
@@ -114,13 +119,74 @@ These were expensive to get right and are proven by integration tests. Change th
 - No separate CSRF token is implemented. That is a recorded decision with reasoning and residual risk (section B3 of the decisions record), not an omission. Revisit it if the API and web app stop being same-site.
 - `lint/style/useImportType` stays **off** in `biome.json`. NestJS injects classes at runtime and `emitDecoratorMetadata` needs the runtime value; type-only imports break dependency injection and silently disable `ValidationPipe` DTO validation. Use `import type` only for genuine interfaces and type aliases.
 
+## Draft save contract — clients depend on this
+
+`PATCH /products/:id` requires `expectedDraftRevision` and replaces content with these exact semantics:
+
+- omitted top-level field → unchanged
+- explicit `null` → cleared where the domain allows null
+- supplied scalar → replaced
+- omitted nested section → unchanged
+- supplied `materials` or `certifications` array → replaces the whole collection in the same transaction
+- supplied `sustainability` object → updates the fields present in the object, preserving omitted inner fields; explicit `null` inner fields clear them
+- explicit `null` sustainability → removes the record
+
+The revision is claimed atomically: one transaction performs a conditional `UPDATE ... WHERE id = $1 AND "companyId" = $2 AND "deletedAt" IS NULL AND "draftRevision" = $expected RETURNING "draftRevision"`. Exactly one competing writer may win; the loser gets 409 `PRODUCT_REVISION_CONFLICT` and no nested change is applied. Never replace this with a read-compare-then-write.
+
+Draft saves deliberately do **not** enforce publication completeness, and a material total other than 100 is allowed — those are publication prerequisites.
+
+## Gated execution workflow
+
+Every meaningful pass follows these gates in order. The full version lives in [docs/specs/10-AI-AND-DX.md](docs/specs/10-AI-AND-DX.md).
+
+0. **Repository truth** — read this file, check branch/HEAD/worktree, read the owning specs and recorded decisions, read the worklog, and identify stale present-state documentation. Never implement from stale assumptions.
+1. **Scope and decision gate** — state the goal, in-scope and out-of-scope behaviour, contracts touched, unresolved decisions this slice needs, required evidence and exit condition. **Never silently select an unresolved material product/security/architecture decision**: present the options and stop for Cristian unless his prompt already chose one. An earlier AI recommendation is not human approval.
+2. **Implementation** — only the approved slice, preserving proven invariants, in small logical commits. Do not modify `main` or create the next milestone branch early.
+3. **Focused independent verification** — target the pass's critical invariants (auth → session/replay/authorization; drafts → ownership/concurrency/mass assignment; assets → MIME/signature/immutability/access). A second AI agreeing is not proof; resolve or record findings.
+4. **Executable validation** — run the applicable gates. Never report a check as passed unless it ran against the relevant final commit state.
+5. **End-of-pass truthfulness reconciliation (mandatory)** — re-read and reconcile this file, README/current-state docs, `docs/IMPLEMENTATION-DECISIONS.md`, `docs/AI-WORKLOG.md` and any owning spec whose behaviour changed. **A pass is not complete while `AGENTS.md` still describes the state from before that pass.** The worklog may be reconciled and normalized for accuracy while a milestone is unmerged, and its completed evidence becomes stable once that milestone is merged; historical prose is not rewritten, and stale present-state claims must not survive.
+6. **Completion report and stop** — push, report HEAD, commands, results, decisions, defects, unresolved items, what is unvalidated, and the recommended next slice. Then stop. A successful pass grants permission to report readiness, not to advance the project.
+7. **Cristian decision gate** — the next action happens only after Cristian decides. Do not infer approval from silence or from green tests.
+8. **Milestone merge** — there is no permanent `develop` branch. A milestone branch merges into `main` only with explicit approval; then verify `main`, delete obsolete branches, and branch the next milestone from the updated `main`.
+
+### Authority hierarchy
+
+1. Employer assessment requirements, when available and unambiguous.
+2. Recorded project decisions approved by Cristian.
+3. Current owning specs and contracts.
+4. Approved scope for the current pass.
+5. AI recommendations.
+
+AI recommendations do not become project decisions merely because they appear in a spec, worklog, completion report or prompt.
+
+### End-of-pass checklist
+
+Verify explicitly; do not mark an item complete by assumption.
+
+- [ ] requested scope only
+- [ ] required decisions already recorded
+- [ ] critical invariant independently checked
+- [ ] applicable executable gates run
+- [ ] `docs/AI-WORKLOG.md` appended truthfully
+- [ ] `docs/IMPLEMENTATION-DECISIONS.md` updated if a decision changed
+- [ ] README/current docs checked
+- [ ] `AGENTS.md` re-read and reconciled with the final repository state
+- [ ] branch pushed and worktree clean
+- [ ] no next milestone started
+- [ ] completion report returned for Cristian's gate
+
 ## AI contribution records
 
 The project's coding-agent harness is **Pi 0.87.0**, used with its `explore`, `architect`, `research`, `review` and `verify` subagents. Its default implementation model is `opencode-go/deepseek-v4.1-flash` and its architecture and review route is `openai-codex/gpt-5.6-sol`. Pi is development tooling only — the application builds, tests and runs without it.
 
-Every meaningful task updates [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md) with: date, task, the model and harness actually used, areas generated or modified, suggestions rejected, human review actually performed, checks actually run, and open questions.
+Every meaningful task updates [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md), which is the canonical evidence record. Use its established per-round structure: scope, AI participation, human review, decisions, work performed, findings and rejected approaches, validation evidence, not-validated items, and result.
+
+**Worklog policy:** while a milestone is active and unmerged, the worklog may be reconciled and normalized for accuracy — corrections are folded into the rounds where they belong. Once a milestone is accepted and merged into `main`, its completed evidence becomes stable, and later material corrections must be explicit and traceable through Git rather than silently rewritten.
 
 - Be truthful. Inventing results, claiming review that did not happen, or asserting precise percentages of AI-written code are all prohibited.
+- Report human review in its three separate parts — decision/scope review, manual validation, and source-code review. Never collapse them into one word. Cristian reviews decisions and scope during the build rounds and reviews source code only once the complete project is built, so `none yet` is inaccurate; say which parts happened.
+- Record AI used outside this harness (the external ChatGPT review/orchestration layer) as a tool with its real model identity, described qualitatively. It is AI review, not human review, and it did not author repository files or execute local commands.
+- When something is unvalidated, name the category: tests not run, human review deferred, deployment not performed, feature not implemented, security testing not performed.
 - The planning specs are AI-assisted drafts. Do not retroactively describe their planned tests as passed tests.
 - Distinguish clearly between what was completed and what remains proposed.
 
