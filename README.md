@@ -63,6 +63,14 @@ pnpm db:migrate               # apply migrations
 
 `prisma/verification/invariant-checks.sql` re-checks the schema-level invariants against an already-migrated database; it rolls back everything it inserts.
 
+The authentication slice exists: the API serves `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout` and `GET /auth/me`, and the frontend provides the login, workspace and account-status pages. There is still no product, publication, upload, analytics or admin feature.
+
+```bash
+pnpm lint && pnpm typecheck && pnpm build     # static checks
+pnpm --filter @notarify/api test:integration  # API tests, real PostgreSQL
+pnpm test:e2e                                 # Playwright auth regression
+```
+
 Application setup, seed and test commands land with roadmap Stage 2 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they exist and have been executed.
 
 ## Data and claims

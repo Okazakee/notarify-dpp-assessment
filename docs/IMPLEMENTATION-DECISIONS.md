@@ -44,9 +44,28 @@ These were unresolved drafts and are now settled. They carried a migration-block
 | --- | --- | --- |
 | Deployment tenancy | One company per deployment. `companyId` ownership columns and ownership checks are retained. No tenant onboarding, membership infrastructure, tenant routing or generalized multi-tenant architecture is built. | `User.normalizedEmail` stays globally unique. Company filters remain plain ownership comparisons, not a permission boundary. |
 | Product granularity | One serialized physical item per `Product`. SKU may repeat. `(companyId, serialNumber)` is unique. Soft-deleted serial numbers stay reserved. | `Product_companyId_serialNumber_key` is a real unique index; `Product.sku` is indexed but deliberately not unique. Reversing this later is a migration, not a config change. |
-| Publish authorization | Editors may publish and republish; publishing is not Admin-only. Admin additionally deletes/withdraws, reviews versions, reads raw analytics and audits, and manages users and settings. | Supersedes the earlier Admin-only proposal. The brief requires neither behaviour. Publish authorization is **not implemented** in the authentication slice and must never be gated to ADMIN in code until this is recorded as final. |
+| Publish authorization | Editors may publish and republish; publishing is not Admin-only. Admin additionally deletes/withdraws, reviews versions, reads raw analytics and audits, and manages users and settings. | Supersedes the earlier Admin-only proposal. The brief requires neither behaviour, so this is a project choice, and it **is** recorded — it is not pending. What is pending is the code: publication does not exist yet, so no publish authorization is implemented, and nothing may gate publish to ADMIN when it arrives. |
 
 Every other entry in section C remains unresolved and must not be treated as approved.
+
+### B3. CSRF decision for cookie-authenticated mutations (recorded, not deferred)
+
+Spec 04 requires an explicit CSRF token on refresh/logout plus equivalent login-CSRF protection. **No separate CSRF token is implemented.** That is a deliberate technical decision, recorded here rather than silently skipped, because the cookie and topology design already removes the attack the token defends against:
+
+| Control | What it does here |
+| --- | --- |
+| `SameSite=Lax` on the refresh cookie | Browsers never attach it to a cross-site POST, which is the only vector that matters for `/auth/refresh` and `/auth/logout`. `/auth/login` carries no prior credential, so there is nothing for a forged request to ride on. |
+| Server-side `Origin` allowlisting | Every cookie-authenticated mutation validates `Origin` against the exact configured application origin and rejects anything else. This does not depend on browser behaviour. |
+| `Path=/auth`, HttpOnly, Secure in production | Narrows exposure of the cookie itself. |
+
+Residual risk accepted, stated precisely:
+
+- **Requests with no `Origin` header are allowed**, deliberately, so non-browser clients and tests work. A legacy or non-browser context that omits `Origin` while still sending the cookie would not be covered by the allowlist. This is the main accepted gap and is the reason `Origin` checking is not claimed to be complete CSRF protection on its own.
+- **Compromise of the actually allowed origin** defeats any origin-based control, as it would defeat a token minted by that origin.
+
+A sibling subdomain does **not** satisfy an exact `Origin` allowlist, so it is not a residual risk of this design. A CSRF token would not defend against a stolen cookie either. Browsers without `SameSite` support are out of scope.
+
+**Revisit this decision if** the API is ever served from a different registrable domain than the web application, if a cross-site embedding requirement appears, or if the refresh cookie stops being `SameSite=Lax`. Until then, adding a token would add client complexity without closing a reachable gap.
 
 ### C. Unresolved product and policy assumptions
 
@@ -54,7 +73,7 @@ The recommendations below make the schema draft coherent. They are not approvals
 
 | Assumption | Recommended simple default | Credible alternative | Consequence of default | Latest decision deadline |
 | --- | --- | --- | --- | --- |
-| Admin/Editor permission matrix | Project decision (2026-09-21): an Editor reads private product data and previews, creates and edits product drafts with their child data and assets, **publishes and republishes**, and reads aggregate dashboard analytics. An Admin does all of that plus delete/withdraw, version review, raw analytics and audit access, user and role management, and company settings. | Different publish/review/analytics powers | Publication is **not** Admin-only; the earlier Admin-only proposal is superseded. The brief does not define permissions, so every cell remains a project choice, not a Notarify requirement. | **Publish authorization stays unimplemented** until it is recorded as final; nothing may gate publish to ADMIN in code |
+| Admin/Editor permission matrix | Project decision (2026-09-21): an Editor reads private product data and previews, creates and edits product drafts with their child data and assets, **publishes and republishes**, and reads aggregate dashboard analytics. An Admin does all of that plus delete/withdraw, version review, raw analytics and audit access, user and role management, and company settings. | Different publish/review/analytics powers | Publication is **not** Admin-only; the earlier Admin-only proposal is superseded. The brief does not define permissions, so every cell remains a project choice, not a Notarify requirement. | **Publication is out of scope**, so publish authorization is not implemented anywhere yet; when it is, it must allow EDITOR and ADMIN |
 | Internal “verification” meaning and wording | A version-scoped, qualified internal review (`APPROVED`/`REJECTED`); no review means unreviewed. | Omit badge/review, or use another explicitly qualified workflow. | It cannot imply authenticity, certification, ESPR compliance, or official registration. | **Before public API/UI and review endpoint**. |
 | Published-edit visibility | Editing live draft data leaves the current public snapshot unchanged until explicit republish. | Immediate public edits. | A stale-looking public page is intentional; editors must understand explicit republish. | **Before publish/public UI implementation**. |
 | Analytics semantics | `QR_HIT` = QR-link URL request; `VIEW` = rendered public page event; never call either a unique person/scan. | Different labels/collection contract. | Dashboard labels and retention query boundaries derive from these definitions. | **Before analytics API/UI implementation**. |
@@ -180,6 +199,7 @@ The following are migration/application requirements. **The initial migration no
 | Bounded/safe JSON and metadata | `publicSnapshot`, audit metadata, analytics metadata | Transactional rules `publication.snapshot_no_binary_tx`, `audit.safe_metadata_tx`, `analytics.metadata_bounds_tx` | JSONB must never contain byte bodies, credentials/tokens, unrestricted payloads, or unbounded client data. |
 | Server-authoritative field binding | User.role, User.active, User.companyId, Product.draftRevision, Passport.currentVersionId and withdrawnAt, PassportReview status and reviewer fields, session and refresh lifecycle fields, AnalyticsEvent and AnalyticsDaily synthetic | Transactional rules identity.derive_actor_tx and catalog.reject_client_lifecycle_fields_tx; command-specific DTOs per endpoint | A generic Prisma update or nested DTO that binds client input would permit role escalation, account reactivation, forged publication or review state, session manipulation, or synthetic-data masking. Derive actor, company, session, timestamps and state on the server; reject client-supplied internal ids and lifecycle fields; add negative API tests for every listed class. |
 | Analytics retention/rollup | closed raw interval and `AnalyticsDaily(passportId,dateUtc,kind,synthetic)` | Schema unique `AnalyticsDaily_passportId_dateUtc_kind_synthetic_key`; Transactional rule `analytics.rollup_and_purge_tx` | Aggregate/upsert and raw deletion must commit together; the `synthetic` discriminator preserves seed provenance in aggregates after raw purge so synthetic and real counts never merge; reports query mutually exclusive raw/rolled intervals. |
+| Origin enforcement on cookie mutations | `Origin` header of `POST /auth/login`, `/auth/refresh`, `/auth/logout` | **Application:** origin-check middleware/guard against the configured `CORS_ORIGIN` | CSRF/Origin defence that does not depend on CORS or on browser SameSite behaviour. Rejection is 403 with a stable code. |
 | Anonymous asset access | requested asset plus active Passport/current version/version asset/product deletion state | Transactional rule `assets.authorize_public_download_tx` on every request | Knowledge of an Asset ID, stale JSON, an asset `public` flag, or Redis must never grant access. |
 | Soft deletion and withdrawal | Product, Passport, AuditEvent | Transactional rule `catalog.soft_delete_and_withdraw_tx` | Product soft delete, passport withdrawal, and audit write are one all-or-nothing mutation. |
 

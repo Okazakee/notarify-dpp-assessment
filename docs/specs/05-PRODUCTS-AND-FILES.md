@@ -44,4 +44,6 @@ Do not label a plain substring filter as the full-text-search bonus. Keep Prisma
 
 ## Acceptance
 
-An Editor can create an incomplete draft, upload files, populate every tab, save and reopen it. Invalid percentages, mismatched ownership, unsupported files and stale edits fail safely. An Admin can publish it, find it through filters/search, and soft-delete it without removing history. Drag-and-drop and the keyboard-accessible file picker use the same upload contract.
+An Editor can create an incomplete draft, upload files, populate every tab, save and reopen it. Invalid percentages, mismatched ownership, unsupported files and stale edits fail safely. An Editor or an Admin can publish it, find it through filters/search, and an Admin can soft-delete it without removing history. Drag-and-drop and the keyboard-accessible file picker use the same upload contract.
+
+**Update 2026-09-21:** the earlier wording of this acceptance line implied publication was Admin-only. It is not: the recorded project decision lets an Editor publish and republish (see section B2 of `docs/IMPLEMENTATION-DECISIONS.md`). Publication is not implemented yet in any case.

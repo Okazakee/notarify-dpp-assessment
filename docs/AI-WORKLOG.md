@@ -192,3 +192,67 @@ Corrections it forced, applied in the following commit:
 **Deliberately not changed.** Historical proposals, rejections and unresolved items elsewhere in the specs were left intact; no planning decision was retroactively restated as if it had always been correct. No product requirement was changed.
 
 **Checks run.** Documentation edits only. No build, test, linter, typecheck, Prisma command or database command was run in this pass.
+
+---
+
+## 2026-09-21 — Workspace scaffold and authentication slice (build/schema-validation)
+
+**Task.** Minimal truthful pnpm/Nest/Next scaffold, the authentication slice (login, refresh, logout, me), a strict refresh-token transaction proven against real PostgreSQL, a minimal browser auth flow, and test/build/lint/typecheck/audit evidence.
+
+**Model and harness.** Pi harness (0.87.0), `opencode-go/deepseek-v4.1-flash` route for the primary and for both implementation subagents. No GPT-route model was used. Reviewers are AI, not humans; human review is `none yet`.
+
+**Added.** `apps/api` (NestJS 12.4.0-family, Prisma 7.10.0 via `@prisma/adapter-pg`, Argon2id through `@node-rs/argon2`, cookie-parser, JWT access tokens, strict refresh rotation) and `apps/web` (Next 16.3.5 App Router, Tailwind 4 + daisyUI, in-memory access token only). Root: `biome.json`, `tsconfig.base.json`, workspace scripts, CORS configuration, dependency overrides.
+
+**Commands executed and actual results.**
+- `pnpm install --no-frozen-lockfile` — exit 0
+- `pnpm db:validate` — schema is valid
+- `pnpm lint` (Biome 2.5.14) — 34 files checked, no diagnostics
+- `pnpm typecheck` — both workspaces pass
+- `pnpm build` — both workspaces pass
+- `pnpm --filter @notarify/api test:integration` — 1 suite, **9/9 tests pass** against PostgreSQL 18.6
+- `pnpm audit` — **no known vulnerabilities** (after the overrides below)
+- Browser validation against the real stack (Next on :3001, Nest on :3000, PostgreSQL 18.6)
+
+**Browser evidence.** Wrong password returns the generic error and stays on `/login`. Correct password logs in and renders "Signed in as demo@example.test, Role: EDITOR". `/dashboard` shows email, role and company. A full page reload restores the session through the silent refresh. `localStorage` and `sessionStorage` hold zero keys and `document.cookie` is empty, confirming the access token stays in memory and the refresh cookie is HttpOnly. Logout returns to `/login`, and a subsequent visit to `/dashboard` redirects to `/login` with `POST /auth/refresh` answering 401.
+
+**Defects found and fixed during this round.**
+1. **Biome's recommended preset silently broke NestJS dependency injection.** `lint/style/useImportType` rewrote injectable classes and DTO classes (`PrismaService`, `ConfigService`, `JwtService`, `AuthService`, `LoginDto`) into `import type`. The suite went from 9/9 passing to 9/9 failing with "Nest can't resolve dependencies of the PrismaService". It also would have erased the DTO metadata `ValidationPipe` depends on, silently disabling request validation. `useImportType` is now off, with the reason recorded in `biome.json`. Pure types and interfaces still use `import type` where `emitDecoratorMetadata` would otherwise emit them.
+2. **No CORS configuration existed**, so the cross-origin credentialed browser flow could not work. Added `CORS_ORIGIN` to the validated config (required in production, defaulting to the Next port in development) and `enableCors` with an exact origin plus credentials.
+3. **pnpm rewrote `allowBuilds` with placeholder strings** ("set this to true or false"), which made every pnpm command fail. The two optional helpers are now explicitly denied and the NestJS same-day-release exclusion is documented.
+4. **Three transitive advisories** (`mysql2` twice, `deepmerge-ts`) reached the tree through the Prisma CLI, which pins `mysql2@3.15.3`. Prisma has no patched 7.x release, so targeted pnpm overrides pin `mysql2@3.24.4` and `deepmerge-ts@8.0.2`; the toolchain was re-verified afterwards. These paths are MySQL-only and unreachable from this PostgreSQL application, but they were fixed rather than suppressed.
+
+**Deliberately not implemented.** Product CRUD, editor screens, publication/passport behaviour, publish authorization, uploads, asset processing, QR, PDF, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenant onboarding, CASL or permission tables, generic repositories, Docker Compose and deployment. Roles exist only as a JWT claim and in `GET /auth/me`; **nothing is gated to ADMIN**, consistent with the recorded decision that publishing is not Admin-only.
+
+**Not verified.** No end-to-end Playwright suite; browser validation was manual and is not a regression test. No load, penetration or container scan. The PostgreSQL instance is a disposable container, not the project stack. Application behaviour beyond the auth slice does not exist.
+
+---
+
+## 2026-09-21 — Authentication hardening pass (build/schema-validation)
+
+**Task.** Close the remaining auth acceptance gaps without redesigning the architecture: Origin enforcement, authoritative actor resolution, generic login failures, idempotent logout, runtime token refresh in the browser, shared app configuration, HTTP hardening, tests and a Playwright regression.
+
+**Model and harness.** Pi harness (0.87.0), `opencode-go/deepseek-v4.1-flash` route for the primary and both subagents. No GPT-route model. Reviewers are AI; human review is `none yet`.
+
+**Fixed.**
+1. **Origin enforcement.** `/auth/login`, `/auth/refresh` and `/auth/logout` now validate `Origin` against the configured application origin and reject a mismatch with 403 `INVALID_ORIGIN`. A missing `Origin` is deliberately allowed for non-browser clients, tests and curl, with the rationale in code and coverage for both cases. CORS is not treated as CSRF protection anywhere.
+2. **Authoritative actor.** `AccessTokenGuard` now establishes the full actor in one place — signature, algorithm, issuer, audience, expiry, session existence, session/subject match, revocation, session expiry, user existence, user active, and fresh role/companyId from PostgreSQL — and attaches it to the request. `/auth/me` consumes it with no second lookup, and a probe controller in the test suite proves an arbitrary protected endpoint gets the same treatment. Roles remain absent from the JWT.
+3. **Generic login failures.** Unknown email, wrong password and disabled account now return an identical 401 `INVALID_CREDENTIALS`; the real reason is logged server-side only. A dummy Argon2 verification keeps the disabled path from becoming an obvious timing oracle.
+4. **Idempotent logout.** Returns 204 when the session is active, already revoked, the token is unknown, or the cookie is absent, and resolves the session only from the presented cookie digest.
+5. **Shared application configuration.** `apps/api/src/application.ts` applies middleware, pipes, Helmet, request IDs and Origin checks; `main.ts` and the integration tests both use it, so tests exercise real configuration.
+6. **HTTP hardening.** Helmet, per-request ID (accepting a well-formed inbound `x-request-id`, otherwise `randomUUID`), the ID echoed in a response header and included as `requestId` in the stable error body, and minimal logging that never records cookies, authorization headers, passwords or refresh tokens.
+7. **Runtime token refresh.** The web client performs exactly one refresh and one retry on a 401 from a protected call, sharing a single in-flight refresh promise so concurrent 401s do not stampede, and clears state to `/login` when refresh fails. The token stays memory-only; cross-tab coordination remains a documented follow-up.
+8. **Access-token lifetime is configurable** via `ACCESS_TOKEN_TTL_SECONDS` (validated, 1–86400, default 600) so the browser test can exercise refresh in seconds instead of sleeping ten minutes.
+9. **Playwright regression** (`e2e/`, run with `pnpm test:e2e`): login, session restoration on reload with empty web storage, runtime refresh with exactly one 200 on `/auth/refresh`, and logout with protected-route redirect. It starts the built API and web app itself.
+
+**CSRF decision.** Spec 04 asks for an explicit CSRF token on cookie mutations. It is **not** implemented, and that is recorded rather than skipped: section B3 of `docs/IMPLEMENTATION-DECISIONS.md` states the reasoning (`SameSite=Lax` plus server-side `Origin` allowlisting on a same-site topology), the residual risk (same-site subdomain attacker; a stolen cookie is unaffected either way), and the conditions that would require revisiting it. Spec 04 carries a dated note pointing at that decision so the deviation is visible.
+
+**Commands executed and actual results.**
+- `pnpm db:validate` — schema is valid
+- `pnpm lint` — 38 files checked, no diagnostics
+- `pnpm typecheck` — both workspaces pass
+- `pnpm build` — both workspaces pass
+- `pnpm --filter @notarify/api test:integration` — 1 suite, **18/18 pass** against PostgreSQL 18.6
+- `pnpm test:e2e` — **4/4 pass** (login, session restore, runtime refresh, logout)
+- `pnpm audit` — no known vulnerabilities
+
+**Not verified.** No cross-tab refresh coordination (explicitly deferred). No load, penetration or container scan. No dependency-age or licence review beyond `pnpm audit`. The database remains a disposable container. Every product feature is still absent and untested.

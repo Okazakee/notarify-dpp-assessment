@@ -1,10 +1,34 @@
 # pnpm configuration.
 #
-# Workspace package globs (apps/*, packages/*) are added once those directories
-# gain their own manifests.
-#
-# Build-script approval, written by `pnpm approve-builds --all`. pnpm 12 blocks
-# dependency install scripts by default; the Prisma CLI needs its postinstall.
+# `allowBuilds` records which dependencies may run install scripts. pnpm 12 blocks
+# them by default. Prisma's CLI and engine, and the Argon2 native binding, need
+# theirs. The two below are optional native/resolver helpers that work without a
+# build step, so they are explicitly denied rather than left as placeholders.
 allowBuilds:
   '@prisma/engines': true
   prisma: true
+  '@node-rs/argon2': true
+  '@parcel/watcher': false
+  unrs-resolver: false
+
+# pnpm's supply-chain policy refuses packages published very recently. NestJS
+# 12.0.4 ships on the same day it is pinned here, so it is excluded deliberately.
+# Remove these entries once the release ages past the policy window.
+minimumReleaseAgeExclude:
+  - '@nestjs/common@12.0.4'
+  - '@nestjs/core@12.0.4'
+  - '@nestjs/platform-express@12.0.4'
+  - '@nestjs/testing@12.0.4'
+
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Transitive advisories via the Prisma CLI, which pins mysql2 3.15.3 and
+# deepmerge-ts <8. The application only ever talks to PostgreSQL through
+# @prisma/adapter-pg, so these MySQL/utility paths are not reachable at runtime.
+# Prisma has no patched 7.x release (7.10.0 is the current stable line), so the
+# vulnerable transitive versions are overridden rather than left in place.
+overrides:
+  mysql2: 3.24.4
+  deepmerge-ts: 8.0.2

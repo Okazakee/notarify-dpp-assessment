@@ -28,6 +28,8 @@ Proposed defaults: short-lived access JWT (10 minutes), rotating opaque refresh 
 - Store only a digest of the high-entropy refresh secret. Rotate atomically; retain consumed-token references until session expiry so reuse is detectable. Reuse revokes the family.
 - Check active session and current user/role on protected requests, enabling immediate logout, account disable and role-change enforcement. This intentionally uses server state despite JWT access tokens.
 - Refresh/logout are cookie-authenticated operations: verify exact configured Origin and an explicit CSRF token on browser mutations. Apply equivalent login-CSRF protection. SameSite is supplementary.
+
+**Update 2026-09-21:** exact configured `Origin` is enforced server-side on all three cookie-authenticated mutations. An additional CSRF token is **not** implemented; that is a recorded decision with reasoning and residual risk in section B3 of `docs/IMPLEMENTATION-DECISIONS.md`, not an omission. This line remains the requirement of record and the decision must be revisited if the topology changes.
 - The client serializes refresh attempts; across tabs use coordinated refresh or explicitly test/document a strict reuse policy that may require re-login. Never allow a refresh stampede to silently bypass rotation.
 - Logout revokes the session, clears cookies and discards client caches. Password changes and disabling a user revoke sessions. Prevent removing/disabling the last active Admin.
 
