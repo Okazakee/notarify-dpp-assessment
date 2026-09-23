@@ -168,6 +168,50 @@ export class AssetsService {
   }
 
   /**
+   * Loads an accepted asset and its bytes by exact id, performing **no** authorization of
+   * its own.
+   *
+   * The trust boundary is explicit and narrow. This exists for a caller that has already
+   * established the asset may be served — currently the anonymous published-asset route,
+   * which proves the asset is retained by the current active published version before
+   * calling. It deliberately does not scope by company or state beyond `ACCEPTED`, so it
+   * must never be called from a route that has not made that authorization decision
+   * first. It returns `null` rather than throwing so the caller maps every failure to its
+   * own safe response.
+   */
+  async findAcceptedContentById(assetId: string): Promise<{
+    id: string
+    detectedMime: string
+    originalName: string
+    bytes: Buffer
+  } | null> {
+    if (!isUUID(assetId)) {
+      return null
+    }
+
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, state: AssetState.ACCEPTED },
+      select: {
+        id: true,
+        detectedMime: true,
+        originalName: true,
+        content: { select: { bytes: true } },
+      },
+    })
+
+    if (asset === null || asset.content === null) {
+      return null
+    }
+
+    return {
+      id: asset.id,
+      detectedMime: asset.detectedMime,
+      originalName: asset.originalName,
+      bytes: Buffer.from(asset.content.bytes),
+    }
+  }
+
+  /**
    * Resolves the assets a product draft is allowed to reference.
    *
    * Only accepted, same-company assets are returned, and the query is scoped by
