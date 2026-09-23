@@ -8,7 +8,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **The Assets slice is merged into `main`.** Validated binary upload with private retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, are implemented and verified on `main`.
 
-**Stage 4.1 (publication core) is implemented on `build/publication` and is not yet merged.** It awaits Cristian's acceptance. The remaining Stage 4 milestones and everything downstream are not implemented.
+**Stage 4.1 (publication core) is merged into `main`.** The remaining Stage 4 milestones and everything downstream are not implemented.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.

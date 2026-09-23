@@ -123,7 +123,7 @@ Completed functionality is marked complete and future functionality is marked as
 
 ### B7. Publication core decisions (Stage 4.1)
 
-Recorded 2026-09-23 and implemented on `build/publication`.
+Recorded 2026-09-23 and implemented, merged into `main`.
 
 | Decision | Value |
 | --- | --- |
