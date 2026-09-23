@@ -94,6 +94,8 @@ The API has no `dev` script: build it and run `node apps/api/dist/src/main.js`. 
 
 The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGIN`; see `.env.example`. Startup fails fast on missing or unsafe configuration.
 
+`next build` runs with `NODE_ENV=production`, pinned in the `apps/web` build script. The repository's `.env` sets `NODE_ENV=development`, and an ambient `NODE_ENV=development` makes the build fail while prerendering `/_global-error` with `TypeError: Cannot read properties of null (reading 'useContext')`, which does not name the real cause. `e2e/playwright.config.ts` pins the same value for `next start` for the same reason.
+
 **Not supported yet — do not document or invoke them as if they work:** `test:unit`, `openapi:export`, `security:check`, `compose:up`. They remain proposals from the roadmap. There is no Docker or Compose configuration in this repository; the database used for testing is a disposable container.
 
 ## Test evidence
