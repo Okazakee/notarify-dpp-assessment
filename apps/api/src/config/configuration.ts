@@ -8,6 +8,7 @@ export type AppEnvironment = {
   JWT_SECRET: string
   NODE_ENV: string
   PORT?: string
+  PUBLIC_APP_ORIGIN: string
 }
 const PRODUCTION_PLACEHOLDERS: Record<string, true> = {
   'change-me': true,
@@ -65,12 +66,28 @@ export function validateEnvironment(environment: Record<string, unknown>): AppEn
     corsOrigin = 'http://localhost:3001'
   }
 
+  // The origin baked into QR target URLs. It must come from validated configuration
+  // and never from a client-supplied Host header, because a printed QR code outlives
+  // the request that produced it. Development default: the Next.js port used by apps/web.
+  let publicAppOrigin: string
+  if (
+    typeof environment.PUBLIC_APP_ORIGIN === 'string' &&
+    environment.PUBLIC_APP_ORIGIN.trim().length > 0
+  ) {
+    publicAppOrigin = environment.PUBLIC_APP_ORIGIN.trim()
+  } else if (nodeEnvironment === 'production') {
+    throw new Error('PUBLIC_APP_ORIGIN is required in production')
+  } else {
+    publicAppOrigin = 'http://localhost:3001'
+  }
+
   return {
     ACCESS_TOKEN_TTL_SECONDS: accessTokenTtlSeconds,
     CORS_ORIGIN: corsOrigin,
     DATABASE_URL: databaseUrl,
     JWT_SECRET: jwtSecret,
     NODE_ENV: nodeEnvironment,
+    PUBLIC_APP_ORIGIN: publicAppOrigin.replace(/\/+$/, ''),
     ...(typeof environment.PORT === 'string' ? { PORT: environment.PORT } : {}),
   }
 }
