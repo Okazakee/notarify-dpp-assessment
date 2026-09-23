@@ -6,7 +6,9 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Milestone 1 is merged into `main`.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified on `main`.
 
-**The Assets slice is merged into `main`.** Validated binary upload with private retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, are implemented and verified on `main`. Publication and everything downstream of it is not implemented.
+**The Assets slice is merged into `main`.** Validated binary upload with private retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, are implemented and verified on `main`.
+
+**Stage 4.1 (publication core) is implemented on `build/publication` and is not yet merged.** It awaits Cristian's acceptance. The remaining Stage 4 milestones and everything downstream are not implemented.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -14,10 +16,11 @@ Implemented:
   - Auth: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`; Argon2id; JWT access tokens carrying **no role claim**; strict refresh rotation; Origin enforcement on cookie mutations; Helmet and request IDs.
   - Catalog: `GET /categories`, `POST /products`, `GET /products` (bounded pagination, category/country/date filters, PostgreSQL full-text search), `GET /products/:id`, `PATCH /products/:id` with atomic `draftRevision` concurrency.
   - Assets: `POST /assets` (one file per request, `multipart/form-data`) and `GET /assets/:id`. Content is identified from its bytes with `file-type` 22.1.1; images are decoded and re-encoded with `sharp` 0.35.4, which strips metadata and bounds decoded pixels. Bytes live in PostgreSQL `AssetContent.bytea`. Retrieval is private and scoped to the caller's company in the query itself.
+  - Publication: `POST /products/:id/publish` creates the stable Passport identity, an immutable `PassportVersion`, its retained `PassportVersionAsset` references, the QR artifact and an audit row in one transaction. QR rendering uses `qrcode` 1.5.4.
 - **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, publication and republish, Passport/PassportVersion, PassportVersionAsset writes, public passport pages, public asset visibility or downloads, company logo upload (Settings), QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
+Not implemented, and not to be assumed: product delete/withdraw, the public passport page and its API, public asset visibility or downloads, the QR redirect and download surface, Passport PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
 
 ### Proven asset invariants — do not weaken
 
@@ -31,7 +34,17 @@ Not implemented, and not to be assumed: product delete/withdraw, publication and
 - Product attachment validation runs inside the product transaction and **before** the revision is claimed, so an invalid or foreign asset rolls the whole save back without bumping `draftRevision`.
 - A product keeps at most one cover image and at most twelve gallery images; documents and certifications are capped at twenty each; an asset may only be attached once per product; an image asset can never become a document or certification PDF, and a PDF can never become a product image.
 
-Verified on 2026-09-23 on `main`: `pnpm check` passes (65 files linted with no diagnostics, both workspaces typecheck and build, 4 integration suites with 61 of 61 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities. An independent read-only review of the diff found three low-severity defects, and a pre-acceptance review found a fourth in the stored-representation bound; all four are fixed with regression tests written first. CI is green on the merge commit `49fe1aa` (run `35888242273`).
+### Proven publication invariants — do not weaken
+
+- Publishing is the only path that creates a version, and versions are immutable. A republish creates a new version; it never mutates an existing one.
+- The public UUID and its QR artifact are allocated on first publication and retained across republishes. A printed QR code must not stop working.
+- Publishing a revision that already produced a version returns that version instead of duplicating history, backed by the unique constraint on `(passportId, sourceDraftRevision)`.
+- The publish transaction locks the product row `FOR UPDATE`, verifies `expectedDraftRevision`, and writes the version, its retained asset references, the QR, the current-version pointer and the audit row together, so a passport is never observable half-published.
+- `PassportVersionAsset` retains a relational reference to every asset a version exposes, so a later draft edit that unlinks an image cannot break a published version.
+- The QR target origin comes from validated `PUBLIC_APP_ORIGIN` configuration, never from a client-supplied `Host` header.
+- Publication prerequisites never block a draft save, and the company logo is not a prerequisite: the public passport's brand logo is satisfied by a bundled application asset.
+
+Verified on 2026-09-23 on this branch: `pnpm check` passes (72 files linted with no diagnostics, both workspaces typecheck and build, 5 integration suites with 71 of 71 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities.
 
 ## The specs are authoritative
 
@@ -117,7 +130,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts` and `apps/api/test/product-attachments.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (4 suites, 61 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts` and `e2e/assets.spec.ts` via `pnpm test:e2e` (9 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts` and `apps/api/test/publication.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (5 suites, 71 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts` and `e2e/assets.spec.ts` via `pnpm test:e2e` (9 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.

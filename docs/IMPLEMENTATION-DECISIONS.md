@@ -121,6 +121,22 @@ Recorded 2026-09-23. The roadmap was revalidated against the original assessment
 
 Completed functionality is marked complete and future functionality is marked as not implemented; no stage is described as done before it is. Historical worklog rounds are left as they were written.
 
+### B7. Publication core decisions (Stage 4.1)
+
+Recorded 2026-09-23 and implemented on `build/publication`.
+
+| Decision | Value |
+| --- | --- |
+| Publish route | `POST /products/:id/publish` with `expectedDraftRevision` as a precondition. Declared on the `products` base path so the assessment's required shape is preserved, while `PublicationModule` owns the transaction. |
+| Prerequisites | Publication-only, never enforced at draft save: the seven client-settable basic fields, sustainability data, a cover image, materials totalling 100 when any are present, and name, issuing authority, issue date and PDF for each certification. Failures return 400 `PUBLICATION_INCOMPLETE` naming the missing fields. The company logo is **not** a prerequisite. |
+| Identity and history | The public UUID and QR artifact are allocated on first publication and retained across republishes. A republish creates a new immutable version and never mutates an existing one; the current-version pointer moves. |
+| Idempotency | Publishing a revision that already produced a version returns it with `replayed: true`. Enforced by the unique constraint on `(passportId, sourceDraftRevision)`, with the product row locked `FOR UPDATE` so concurrent publishes of one revision produce exactly one version. |
+| Atomicity | The version, its `PassportVersionAsset` rows, the QR artifact, the current pointer and the audit row are written in one transaction, so a passport is never observable half-published. |
+| QR target origin | From validated `PUBLIC_APP_ORIGIN` configuration, never from a client-supplied `Host` header. Required in production, defaulting to the Next.js port in development. |
+| QR rendering | `qrcode` 1.5.4 (MIT) with `@types/qrcode` 1.5.6. Integer `scale` rather than `width`, so modules stay on pixel boundaries and the four-module quiet zone is intact; error correction `M`; no logo overlay. PNG only — `toString` is required for SVG. |
+| Snapshot contents | `PassportSnapshot` schema version 1 stores scalar content and asset **ids** only. No bytes and no origin-dependent URLs, so a stored version stays valid if the public origin changes. |
+| Verification in the snapshot | `verification: { status: 'VERIFIED', basis: 'PROTOTYPE_APPLICATION_LEVEL' }`, recording the basis explicitly so the badge cannot be read as a review outcome. |
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.
