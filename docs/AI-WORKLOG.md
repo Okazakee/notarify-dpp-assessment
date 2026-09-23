@@ -456,4 +456,33 @@ A fourth defect was found after the independent review, in the pre-acceptance pa
 
 **Not validated / deferred.** Human source-code review remains deferred until the complete project is built. No human has manually exercised the upload UX. Antivirus, malware sandboxing and PDF CDR are absent by scope, so a structurally valid PDF is accepted without content inspection. The PDF structural check rejects a legitimate PDF with more than roughly 4 KB of trailing data after `%%EOF`. There is no concurrency cap on image decoding beyond the per-request pixel bound, and the spec defers rate limiting. No garbage collection of unlinked uploads exists. `MaterialInputDto` still permits 1000 entries against the proposed 200, which was left as it was found. No container, deployment or VPS capacity work was done.
 
-**Result.** Authenticated users can upload validated images and PDFs, retrieve them privately, and attach them to a product draft as cover and gallery images, typed documents and certification PDFs, with the existing atomic `draftRevision` contract preserved. Both the uploaded bytes and the persisted representation are bounded by the locked limits. CI is green on the branch. The branch awaits Cristian's Gate 7 decision; it has not been merged, and no publication, Passport or public-asset work has been started.
+**Result.** Authenticated users can upload validated images and PDFs, retrieve them privately, and attach them to a product draft as cover and gallery images, typed documents and certification PDFs, with the existing atomic `draftRevision` contract preserved. Both the uploaded bytes and the persisted representation are bounded by the locked limits. The slice was accepted and integrated in the round below.
+
+---
+
+## 2026-09-23 — Assets integration (Gate 8)
+
+**Scope.** Gate 8 integration of the accepted Assets slice only. No next milestone, no new feature, no publication or Passport work, and no change to application behaviour. The only source change in this round is the documentation reconciliation required by the end-of-pass gate, because `AGENTS.md` still described the slice as unmerged.
+
+**AI participation.** Pi performed the merge, the verification and this reconciliation on the `opencode-go/deepseek-v4.1-flash` route. No subagent was used in this round and no external model participated.
+
+**Human review.** Decision/scope review: Cristian reviewed the completion report, including the recorded limitations and the `sharp` licensing position, and explicitly approved the merge. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built. Milestone acceptance is a decision, not source-code review.
+
+**Decisions.** No new product or architecture decision. The integration followed the recorded workflow: a direct `--no-ff` merge with no pull request and no squash, CI required on the resulting `main` commit before the branch is removed.
+
+**Work performed.** Verified the starting state (`main` equal to `origin/main` at `fed4a05`, branch equal to `origin/build/assets` at `65da48a`, clean worktree), merged `build/assets` into `main` as `49fe1aa` with `--no-ff`, pushed `main`, required green CI on that merge commit, reconciled `AGENTS.md` to the post-merge state, and closed out by proving reachability and deleting the completed branch locally and remotely.
+
+**Findings / rejected approaches.** None new. The three defects found by the independent review and the fourth found in the pre-acceptance pass were all fixed on the branch before integration and are carried by this merge. Rejected: squash-based integration and pull-request ceremony, which would add no decision authority in a solo repository.
+
+**Validation evidence.**
+
+| Item | Value |
+| --- | --- |
+| Branch HEAD integrated | `65da48a9e054d40f164bc9bc078b23e6f55bf773` |
+| Merge commit | `49fe1aabcde9ee39dfb649c31c6268a0c4b18e0b` (`--no-ff`) |
+| CI on the merge commit | run `35888242273`, workflow `CI`, **success** — 65 files linted with no diagnostics, 4 suites / 61 of 61 integration tests, 9 of 9 Playwright tests, and `pnpm audit` reporting no known vulnerabilities, on a clean runner against a fresh PostgreSQL 18.6 service |
+| Application behaviour change | none |
+
+**Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has manually exercised the upload UX. Everything the Assets round listed as deferred is still deferred: antivirus, malware sandboxing and PDF CDR; a concurrency cap on image decoding; garbage collection of unlinked uploads; `MaterialInputDto` limits; container, deployment and VPS capacity work. Publication, Passport and public-asset work has not been started.
+
+**Result.** The Assets slice is integrated into `main`. Capability: authenticated upload of validated images and PDFs, private company-scoped retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, all under the existing atomic `draftRevision` contract and with both the uploaded and stored representations bounded. The next milestone requires an explicit Cristian instruction, a fresh Gate 0 and Gate 1, and a new scoped branch from the then-current `main`.

@@ -6,7 +6,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Milestone 1 is merged into `main`.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified on `main`.
 
-**The Assets slice is implemented on `build/assets` and is not yet merged.** It awaits Cristian's acceptance. Publication and everything downstream of it is not implemented.
+**The Assets slice is merged into `main`.** Validated binary upload with private retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, are implemented and verified on `main`. Publication and everything downstream of it is not implemented.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -31,7 +31,7 @@ Not implemented, and not to be assumed: product delete/withdraw, publication and
 - Product attachment validation runs inside the product transaction and **before** the revision is claimed, so an invalid or foreign asset rolls the whole save back without bumping `draftRevision`.
 - A product keeps at most one cover image and at most twelve gallery images; documents and certifications are capped at twenty each; an asset may only be attached once per product; an image asset can never become a document or certification PDF, and a PDF can never become a product image.
 
-Verified on 2026-09-23 on this branch: `pnpm check` passes (65 files linted with no diagnostics, both workspaces typecheck and build, 4 integration suites with 60 of 60 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities. An independent read-only review of the diff found three low-severity defects, all fixed with regression tests written first.
+Verified on 2026-09-23 on `main`: `pnpm check` passes (65 files linted with no diagnostics, both workspaces typecheck and build, 4 integration suites with 61 of 61 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities. An independent read-only review of the diff found three low-severity defects, and a pre-acceptance review found a fourth in the stored-representation bound; all four are fixed with regression tests written first. CI is green on the merge commit `49fe1aa` (run `35888242273`).
 
 ## The specs are authoritative
 
