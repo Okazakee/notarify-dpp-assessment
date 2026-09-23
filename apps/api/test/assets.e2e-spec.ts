@@ -363,6 +363,35 @@ describe('Asset upload and private retrieval', () => {
     expect((again.body as AssetResponse).sizeBytes).toBe(asset.sizeBytes)
   })
 
+  it('rejects a malformed asset id without disclosing anything', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+
+    // A non-UUID path segment must not reach the database as a raw query value: it has
+    // to be indistinguishable from an asset that does not exist.
+    for (const malformed of ['not-a-uuid', '123', '00000000-0000-4000-8000']) {
+      const response = await request(app.getHttpServer())
+        .get(`/assets/${malformed}`)
+        .set(auth(token))
+      expectError(response, 404, 'ASSET_NOT_FOUND')
+    }
+  })
+
+  it('includes a request id in upload error envelopes', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+
+    const response = await upload(token, oversizedPdfFixture(), {
+      filename: 'huge.pdf',
+      contentType: 'application/pdf',
+    })
+    expect(response.status).toBe(413)
+    expect(response.body.code).toBe('FILE_TOO_LARGE')
+    // Every other error in this API carries a request id; upload failures must too.
+    expect(typeof response.body.requestId).toBe('string')
+    expect((response.body.requestId as string).length).toBeGreaterThan(0)
+  }, 60_000)
+
   it('requires authentication and returns safe errors for unknown assets', async () => {
     const fixture = await createFixture()
     const token = await login(fixture)

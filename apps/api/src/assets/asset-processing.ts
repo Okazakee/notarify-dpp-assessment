@@ -126,10 +126,8 @@ function assertPdfStructure(buffer: Buffer): void {
  * detected, and neither can reach storage.
  */
 export async function detectUpload(buffer: Buffer): Promise<DetectedUpload | null> {
-  if (buffer.length === 0) {
-    throw malformed('The uploaded file is empty.')
-  }
-
+  // An empty buffer is not detectable, so it falls through to the unsupported path,
+  // which is the same outcome the caller already produces for a missing file.
   const detected = await fileTypeFromBuffer(buffer)
   if (detected === undefined) {
     return null

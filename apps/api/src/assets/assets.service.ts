@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
+import { isUUID } from 'class-validator'
 import { AssetState } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { AssetResponse, LinkableAsset, UploadedFile } from './asset.types.js'
@@ -138,6 +139,13 @@ export class AssetsService {
     originalName: string
     bytes: Buffer
   }> {
+    // A malformed id must never reach the database as a raw query value: the driver
+    // would reject it as an internal error rather than the endpoint's clean not-found,
+    // and any authenticated caller could trigger that with a hand-written path.
+    if (!isUUID(assetId)) {
+      throw assetNotFound()
+    }
+
     const asset = await this.prisma.asset.findFirst({
       where: { id: assetId, companyId, state: AssetState.ACCEPTED },
       select: {

@@ -248,9 +248,18 @@ describe('Product attachment associations', () => {
       certifications: [{ name: 'ISO 9001', pdfAssetId: pdf }, { name: 'No PDF attached' }],
     })
 
-    expect(product.certifications[0]?.pdfAssetId).toBe(pdf)
+    expect(product.certifications).toHaveLength(2)
+    // Certifications are ordered by id, which is a random UUID, so assert by identity
+    // rather than by position.
+    const withPdf = product.certifications.find(
+      (certification) => certification.name === 'ISO 9001',
+    )
+    const withoutPdf = product.certifications.find(
+      (certification) => certification.name === 'No PDF attached',
+    )
+    expect(withPdf?.pdfAssetId).toBe(pdf)
     // A certification without a PDF is still valid for a draft.
-    expect(product.certifications[1]?.pdfAssetId).toBeNull()
+    expect(withoutPdf?.pdfAssetId).toBeNull()
   })
 
   it('keeps asset families apart', async () => {
@@ -469,6 +478,29 @@ describe('Product attachment associations', () => {
     })
     expect(response.status).toBe(400)
     expect(response.body.message).toMatch(/once per product/i)
+  })
+
+  it('rejects an out-of-range position instead of failing internally', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const image = await uploadAsset(token, await pngFixture(), 'position.png')
+    const document = await uploadAsset(token, pdfFixture(), 'position.pdf')
+    const product = await createProduct(token, { name: 'Positions' })
+
+    // A value beyond the integer range must be a validation error, never a 5xx.
+    const oversizedImagePosition = await patchProduct(token, product.id, {
+      expectedDraftRevision: product.draftRevision,
+      images: [{ assetId: image, role: 'COVER', position: 2_147_483_648 }],
+    })
+    expect(oversizedImagePosition.status).toBe(400)
+    expect(oversizedImagePosition.body.code).toBe('VALIDATION_ERROR')
+
+    const oversizedDocumentPosition = await patchProduct(token, product.id, {
+      expectedDraftRevision: product.draftRevision,
+      documents: [{ assetId: document, kind: 'MANUAL', position: 2_147_483_648 }],
+    })
+    expect(oversizedDocumentPosition.status).toBe(400)
+    expect(oversizedDocumentPosition.body.code).toBe('VALIDATION_ERROR')
   })
 
   it('rejects malformed attachment payloads', async () => {

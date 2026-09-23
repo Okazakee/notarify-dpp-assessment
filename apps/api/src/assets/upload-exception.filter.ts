@@ -6,7 +6,6 @@ import {
   HttpStatus,
 } from '@nestjs/common'
 import { ApiException, ApiExceptionFilter } from '../common/api-exception.js'
-import type { HttpResponse, ParsedRequest } from '../common/http-types.js'
 
 /**
  * Returns true when an exception already carries this application's error envelope.
@@ -55,8 +54,6 @@ export class UploadExceptionFilter implements ExceptionFilter {
       return
     }
 
-    const response = host.switchToHttp().getResponse<HttpResponse>()
-    const request = host.switchToHttp().getRequest<ParsedRequest>()
     const mapped = new ApiException(
       isTooLarge ? HttpStatus.PAYLOAD_TOO_LARGE : HttpStatus.BAD_REQUEST,
       isTooLarge ? 'FILE_TOO_LARGE' : 'INVALID_UPLOAD',
@@ -65,7 +62,8 @@ export class UploadExceptionFilter implements ExceptionFilter {
         : 'The upload request is not a valid single-file upload.',
     )
 
-    response.setHeader('X-Request-Id', request.requestId ?? '')
-    response.status(mapped.getStatus()).json(mapped.getResponse())
+    // Delegated rather than written here so the response carries the same envelope as
+    // every other error, including the `requestId` the API contract promises.
+    this.fallback.catch(mapped, host)
   }
 }

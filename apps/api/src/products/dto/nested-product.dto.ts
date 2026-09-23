@@ -30,6 +30,14 @@ export const DOCUMENT_KINDS = ['MANUAL', 'WARRANTY', 'TECHNICAL_DATASHEET'] as c
 export type ImageRoleInput = (typeof IMAGE_ROLES)[number]
 export type DocumentKindInput = (typeof DOCUMENT_KINDS)[number]
 
+/**
+ * Upper bound for a collection position.
+ *
+ * Positions are stored in an `Int` column, so a larger value would reach PostgreSQL as
+ * an out-of-range write and surface as an internal error rather than a validation one.
+ */
+const MAX_POSITION = 2_147_483_647
+
 export class MaterialInputDto {
   @IsOptional()
   @IsUUID()
@@ -56,6 +64,7 @@ export class MaterialInputDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(MAX_POSITION)
   position?: number
 }
 
@@ -133,6 +142,7 @@ export class ImageInputDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(MAX_POSITION)
   position?: number
 
   @IsOptional()
@@ -156,6 +166,7 @@ export class DocumentInputDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(MAX_POSITION)
   position?: number
 }
 

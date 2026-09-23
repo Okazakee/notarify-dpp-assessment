@@ -1031,7 +1031,10 @@ export class ProductsService {
         error.code === 'P2002' ||
         error.code === 'P2003' ||
         error.code === 'P2004' ||
-        error.code === 'P2011'
+        error.code === 'P2011' ||
+        // P2020 is an out-of-range numeric write. Bounds are validated in the DTO, so
+        // reaching this is a defence-in-depth mapping rather than an expected path.
+        error.code === 'P2020'
       ) {
         throw this.validationError('The product request violates a data constraint.')
       }
