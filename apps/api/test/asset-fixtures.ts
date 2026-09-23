@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import sharp from 'sharp'
 
 /**
@@ -108,6 +107,33 @@ export function truncated(buffer: Buffer, ratio = 0.5): Buffer {
 }
 
 /**
+ * A small deterministic PRNG (mulberry32).
+ *
+ * Fixture bytes must be reproducible run to run: a size-boundary test that depends on
+ * `crypto.randomBytes` would drift and could pass or fail by luck.
+ */
+function createDeterministicRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let value = state
+    value = Math.imul(value ^ (value >>> 15), value | 1)
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Incompressible pixel data of a fixed length, identical on every run. */
+function deterministicNoise(length: number, seed: number): Buffer {
+  const random = createDeterministicRandom(seed)
+  const buffer = Buffer.alloc(length)
+  for (let index = 0; index < length; index += 1) {
+    buffer[index] = Math.floor(random() * 256)
+  }
+  return buffer
+}
+
+/**
  * An image larger than the 5 MiB image limit.
  *
  * Random pixel data does not compress, so a modest canvas yields a file comfortably
@@ -116,10 +142,29 @@ export function truncated(buffer: Buffer, ratio = 0.5): Buffer {
 export async function oversizedPngFixture(): Promise<Buffer> {
   const width = 1500
   const height = 1500
-  const noise = randomBytes(width * height * 3)
+  const noise = deterministicNoise(width * height * 3, 0xa11ce)
 
   return sharp(noise, { raw: { width, height, channels: 3 } })
     .png()
+    .toBuffer()
+}
+
+/**
+ * A PNG that passes the *uploaded* byte limit but exceeds it once normalized.
+ *
+ * The API re-encodes PNG with plain `.png()` — truecolour at default effort — while this
+ * fixture is written at maximum effort with palette quantization. Re-encoding the same
+ * pixels therefore produces a substantially larger representation, which is exactly what
+ * the bound on the *stored* bytes has to catch. The uploaded form is ~3.8 MiB and the
+ * normalized form is ~7.7 MiB, so both sides of the assertion have clear margin.
+ */
+export async function oversizedAfterNormalizationPngFixture(): Promise<Buffer> {
+  const width = 2000
+  const height = 2000
+  const noise = deterministicNoise(width * height * 3, 0x5eed)
+
+  return sharp(noise, { raw: { width, height, channels: 3 } })
+    .png({ palette: true, colours: 256, compressionLevel: 9 })
     .toBuffer()
 }
 

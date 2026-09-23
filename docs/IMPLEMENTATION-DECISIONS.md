@@ -101,7 +101,9 @@ Approved by Cristian in the milestone prompt for the Assets slice, and implement
 | Immutability | An accepted asset's bytes are never overwritten. Replacing a file creates a new `Asset`. Garbage collection of unreferenced uploads is deferred. |
 | Linking model | Upload first, then link accepted `assetId` values during a product save. Uploading does not touch `draftRevision`; linking does. Unlinked accepted assets may exist temporarily. |
 
-Two characteristics of the image strategy are recorded rather than treated as defects: the byte limit applies to the uploaded file, so a normalized image can in principle be somewhat larger than the limit it passed; and the PDF structural check rejects a legitimate PDF carrying more than roughly 4 KB of trailing data after `%%EOF`. Both are bounded and neither is a security boundary. PDF malware scanning and CDR remain absent, as the spec already states.
+The stored representation is bounded as well as the upload. Normalization re-encodes an image, and re-encoding is not guaranteed to shrink a file, so the persisted bytes are checked against the same 5 MiB image limit before anything is hashed or written. An image that would normalize beyond that bound is rejected with the same 413 `FILE_TOO_LARGE` contract and leaves no `Asset` and no `AssetContent`. PDFs are stored as received and are already bounded by their own input limit.
+
+One characteristic of the PDF strategy is recorded rather than treated as a defect: the structural check rejects a legitimate PDF carrying more than roughly 4 KB of trailing data after `%%EOF`. It is bounded and not a security boundary. PDF malware scanning and CDR remain absent, as the spec already states.
 
 ### C. Unresolved product and policy assumptions
 

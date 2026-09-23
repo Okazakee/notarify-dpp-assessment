@@ -24,6 +24,7 @@ Not implemented, and not to be assumed: product delete/withdraw, publication and
 - Declared MIME type, filename and extension are never authoritative. The stored type comes from the bytes, and the bytes are re-checked after normalization so the served `Content-Type` always matches what is stored.
 - `file-type` matches magic numbers only, so a PDF also has to carry a cross-reference pointer and an end-of-file marker. A file that is only `%PDF-` is rejected.
 - An accepted asset's bytes are immutable. There is no update or delete path; replacing a file creates a new `Asset`.
+- The limit bounds what is **stored**, not only what was uploaded. Normalization re-encodes an image and re-encoding is not guaranteed to shrink it, so the persisted bytes are checked against the same limit before anything is hashed or written. An image that would normalize past the bound is rejected with `FILE_TOO_LARGE` and leaves no `Asset` and no `AssetContent`.
 - Uploads are validated entirely before the first write, so a rejected upload leaves no `Asset` behind.
 - Retrieval scopes by `companyId` inside the query, so another company's asset is indistinguishable from a missing one. A malformed id must not reach the database as a raw value.
 - `AssetContent.bytes` is only ever selected in the download path. No product or list response may carry bytes.

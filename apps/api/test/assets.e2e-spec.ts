@@ -17,6 +17,7 @@ import {
   htmlFixture,
   jpegFixture,
   jpegWithExifFixture,
+  oversizedAfterNormalizationPngFixture,
   oversizedDimensionPngFixture,
   oversizedPdfFixture,
   oversizedPngFixture,
@@ -323,6 +324,31 @@ describe('Asset upload and private retrieval', () => {
       413,
       'FILE_TOO_LARGE',
     )
+  }, 120_000)
+
+  it('rejects an image whose normalized representation exceeds the stored bound', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+
+    const input = await oversizedAfterNormalizationPngFixture()
+    // The uploaded bytes are within the locked image limit ...
+    expect(input.length).toBeLessThanOrEqual(5 * 1024 * 1024)
+    // ... but the representation the API would persist is not, because normalizing the
+    // same pixels produces a larger file. The stored bytes have to stay bounded too.
+    const normalized = await sharp(input).rotate().png().toBuffer()
+    expect(normalized.length).toBeGreaterThan(5 * 1024 * 1024)
+
+    const response = await upload(token, input, {
+      filename: 'expands.png',
+      contentType: 'image/png',
+    })
+    expectError(response, 413, 'FILE_TOO_LARGE')
+
+    // A rejected upload must leave no Asset and no AssetContent behind.
+    expect(await prisma.asset.count({ where: { companyId: fixture.companyId } })).toBe(0)
+    expect(
+      await prisma.assetContent.count({ where: { asset: { companyId: fixture.companyId } } }),
+    ).toBe(0)
   }, 120_000)
 
   it('stores normalized image bytes that are decodable and free of metadata', async () => {

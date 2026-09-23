@@ -69,6 +69,22 @@ export function fileTooLarge(maxBytes: number): ApiException {
   )
 }
 
+/**
+ * Rejects content whose *stored* representation would exceed the image limit.
+ *
+ * The uploaded bytes and the normalized bytes are different artefacts: a valid,
+ * in-limit upload can normalize into a larger file, and for database-backed immutable
+ * storage it is the persisted form that has to stay bounded. The status and code match
+ * every other oversize rejection; only the message distinguishes the two cases.
+ */
+function normalizedImageTooLarge(): ApiException {
+  return rejected(
+    HttpStatus.PAYLOAD_TOO_LARGE,
+    'FILE_TOO_LARGE',
+    `The uploaded image exceeds the ${Math.floor(IMAGE_MAX_BYTES / (1024 * 1024))} MiB limit once normalized for storage.`,
+  )
+}
+
 export function assetNotFound(): ApiException {
   return rejected(HttpStatus.NOT_FOUND, 'ASSET_NOT_FOUND', 'Asset not found.')
 }
@@ -190,20 +206,38 @@ export async function normalizeImage(buffer: Buffer, mime: ImageMimeType): Promi
     )
   }
 
+  let encoded: Buffer | null = null
+
   try {
     const pipeline = sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS }).rotate()
 
     switch (mime) {
       case 'image/jpeg':
-        return await pipeline.jpeg({ quality: 90 }).toBuffer()
+        encoded = await pipeline.jpeg({ quality: 90 }).toBuffer()
+        break
       case 'image/png':
-        return await pipeline.png().toBuffer()
+        encoded = await pipeline.png().toBuffer()
+        break
       case 'image/webp':
-        return await pipeline.webp({ quality: 90 }).toBuffer()
+        encoded = await pipeline.webp({ quality: 90 }).toBuffer()
+        break
     }
   } catch {
     throw malformed('The uploaded image could not be decoded.')
   }
+
+  if (encoded === null) {
+    throw malformed('The uploaded image could not be decoded.')
+  }
+
+  // The locked limit must bound what is persisted, not only what was uploaded.
+  // Re-encoding is not guaranteed to shrink a file, so this is checked before the bytes
+  // are hashed or written; a rejected image leaves no Asset and no AssetContent behind.
+  if (encoded.length > IMAGE_MAX_BYTES) {
+    throw normalizedImageTooLarge()
+  }
+
+  return encoded
 }
 
 /**
