@@ -134,10 +134,14 @@ export class PublicPassportService {
   async getQrPng(publicUuid: string): Promise<{ bytes: Buffer; filename: string }> {
     const active = await this.resolveActive(publicUuid)
 
-    const passport = await this.prisma.passport.findUniqueOrThrow({
+    const passport = await this.prisma.passport.findUnique({
       where: { publicUuid: active.publicUuid },
       select: { qrPngBytes: true },
     })
+
+    if (passport === null) {
+      throw passportNotFound()
+    }
 
     return {
       bytes: Buffer.from(passport.qrPngBytes),

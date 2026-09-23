@@ -1,4 +1,4 @@
-import { Controller, Get, HttpStatus, Param, Res } from '@nestjs/common'
+import { Controller, Get, Header, HttpStatus, Param, Res } from '@nestjs/common'
 import { PDF_MIME_TYPE } from '../assets/asset-processing.js'
 import { type BinaryHttpResponse, writeBinaryResponse } from '../common/binary-response.js'
 import { type PassportView, passportNotFound } from './passport-view.js'
@@ -17,6 +17,8 @@ export class PublicPassportController {
 
   /** The public projection of the current published version. */
   @Get('passport/:uuid')
+  // Published content must not outlive a republish or withdrawal in a shared cache.
+  @Header('Cache-Control', 'no-store')
   async view(@Param('uuid') uuid: string): Promise<PassportView> {
     return this.passports.getPassportView(uuid)
   }

@@ -129,6 +129,9 @@ function parseSnapshot(value: unknown): PassportSnapshot {
   if (!isRecord(value.product) || !isRecord(value.brand)) {
     throw passportUnavailable()
   }
+  if (value.sustainability !== null && !isRecord(value.sustainability)) {
+    throw passportUnavailable()
+  }
   if (
     !Array.isArray(value.materials) ||
     !Array.isArray(value.certifications) ||
@@ -138,7 +141,25 @@ function parseSnapshot(value: unknown): PassportSnapshot {
     throw passportUnavailable()
   }
 
+  // Every element is checked too, so a structurally corrupt entry fails as the intended
+  // controlled error rather than as a TypeError from a projection below.
+  for (const list of [value.materials, value.certifications, value.images, value.documents]) {
+    for (const entry of list) {
+      if (!isRecord(entry)) {
+        throw passportUnavailable()
+      }
+    }
+  }
+
   return value as unknown as PassportSnapshot
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
 }
 
 function assetUrl(publicUuid: string, assetId: string): string {
@@ -187,7 +208,18 @@ export function buildPassportView(input: {
       recyclable: material.recyclable,
       position: material.position,
     })),
-    sustainability: snapshot.sustainability,
+    // Projected field by field rather than echoed, so a stored value of the wrong shape
+    // cannot pass through under a type that declares five scalars.
+    sustainability:
+      snapshot.sustainability === null
+        ? null
+        : {
+            carbonKgCo2e: numberOrNull(snapshot.sustainability.carbonKgCo2e),
+            waterLitres: numberOrNull(snapshot.sustainability.waterLitres),
+            recycledPercent: numberOrNull(snapshot.sustainability.recycledPercent),
+            repairabilityScore: numberOrNull(snapshot.sustainability.repairabilityScore),
+            recyclable: booleanOrNull(snapshot.sustainability.recyclable),
+          },
     certifications: snapshot.certifications.map((certification) => ({
       name: certification.name,
       issuingAuthority: certification.issuingAuthority,

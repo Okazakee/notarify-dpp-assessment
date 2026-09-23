@@ -649,6 +649,7 @@ describe('Public QR artifact and redirect', () => {
     const published = await publishProduct(await login(fixture), await createCategory())
 
     const before = await prisma.analyticsEvent.count()
+    const beforeDaily = await prisma.analyticsDaily.count()
 
     await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`)
     await request(app.getHttpServer()).get(`/passport/${published.publicUuid}/qr.png`)
@@ -658,6 +659,119 @@ describe('Public QR artifact and redirect', () => {
     await request(app.getHttpServer()).get(`/q/${published.publicUuid}`).redirects(0)
 
     expect(await prisma.analyticsEvent.count()).toBe(before)
-    expect(await prisma.analyticsDaily.count()).toBe(0)
+    expect(await prisma.analyticsDaily.count()).toBe(beforeDaily)
+  })
+})
+
+describe('Public passport snapshot safety', () => {
+  it('sets no-store on the JSON projection', async () => {
+    const fixture = await createFixture()
+    const published = await publishProduct(await login(fixture), await createCategory())
+
+    const response = await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`)
+    expect(response.status).toBe(200)
+    expect(response.headers['cache-control']).toBe('no-store')
+  })
+
+  it('fails in a controlled way for an unreadable snapshot', async () => {
+    const fixture = await createFixture()
+    const published = await publishProduct(await login(fixture), await createCategory())
+
+    const original = await prisma.passportVersion.findUniqueOrThrow({
+      where: { id: published.versionId },
+      select: { publicSnapshot: true },
+    })
+    const base = original.publicSnapshot as Record<string, unknown>
+
+    const withoutMaterials = { ...base }
+    delete withoutMaterials.materials
+
+    const corruptions: Array<[string, Record<string, unknown>]> = [
+      ['unsupported schema version', { ...base, schemaVersion: 2 }],
+      ['missing materials array', withoutMaterials],
+      ['null element inside materials', { ...base, materials: [null] }],
+      ['sustainability of the wrong shape', { ...base, sustainability: 'not-an-object' }],
+    ]
+
+    for (const [label, snapshot] of corruptions) {
+      await prisma.passportVersion.update({
+        where: { id: published.versionId },
+        data: { publicSnapshot: snapshot as never },
+      })
+
+      const response = await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`)
+
+      expect([label, response.status]).toEqual([label, 500])
+      expect(response.body.code).toBe('PASSPORT_UNAVAILABLE')
+      // The stored JSON and any database detail must not leak.
+      const serialized = JSON.stringify(response.body)
+      expect(serialized).not.toContain('schemaVersion')
+      expect(serialized).not.toContain('materials')
+      expect(serialized).not.toContain('sustainability')
+    }
+  })
+
+  it('returns a byte-identical 404 body for every unavailable state', async () => {
+    const fixture = await createFixture()
+    const published = await publishProduct(await login(fixture), await createCategory())
+
+    // Only the per-request id may differ between these responses.
+    const shape = (body: Record<string, unknown>): Record<string, unknown> => {
+      const { requestId: _requestId, ...rest } = body
+      return rest
+    }
+
+    const responses: Array<[string, request.Response]> = []
+    responses.push([
+      'malformed uuid',
+      await request(app.getHttpServer()).get('/passport/not-a-uuid'),
+    ])
+    responses.push([
+      'unknown uuid',
+      await request(app.getHttpServer()).get(`/passport/${randomUUID()}`),
+    ])
+
+    await prisma.passport.update({
+      where: { publicUuid: published.publicUuid },
+      data: { withdrawnAt: new Date() },
+    })
+    responses.push([
+      'withdrawn',
+      await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`),
+    ])
+    await prisma.passport.update({
+      where: { publicUuid: published.publicUuid },
+      data: { withdrawnAt: null },
+    })
+
+    await prisma.passport.update({
+      where: { publicUuid: published.publicUuid },
+      data: { currentVersionId: null },
+    })
+    responses.push([
+      'no current version',
+      await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`),
+    ])
+    await prisma.passport.update({
+      where: { publicUuid: published.publicUuid },
+      data: { currentVersionId: published.versionId },
+    })
+
+    await prisma.product.update({
+      where: { id: published.productId },
+      data: { deletedAt: new Date() },
+    })
+    responses.push([
+      'soft-deleted product',
+      await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`),
+    ])
+
+    for (const [label, response] of responses) {
+      expect([label, response.status]).toEqual([label, 404])
+      expect([label, shape(response.body)]).toEqual([
+        label,
+        { statusCode: 404, code: 'PASSPORT_NOT_FOUND', message: 'Passport not found.' },
+      ])
+    }
   })
 })
