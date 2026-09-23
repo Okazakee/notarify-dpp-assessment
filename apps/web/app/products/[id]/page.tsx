@@ -1,22 +1,50 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../auth-context'
 import { LogoutButton } from '../../logout-button'
-import { describeApiError, ProductApiError, readApiResponse } from '../api'
+import {
+  type AuthenticatedRequest,
+  describeApiError,
+  fetchAssetObjectUrl,
+  ProductApiError,
+  readApiResponse,
+  uploadAsset,
+} from '../api'
 import type {
+  AssetUploadResponse,
   Category,
   Certification,
   CertificationDraft,
+  DocumentDraft,
+  DocumentKind,
+  ImageDraft,
+  ImageRole,
   Material,
   MaterialDraft,
   ProductDetail,
+  ProductDocument,
   ProductEditorForm,
+  ProductImage,
   Sustainability,
   SustainabilityDraft,
 } from '../types'
+
+/** Attachment limits mirrored from the API so the editor can give immediate feedback. */
+const MAX_GALLERY_IMAGES = 12
+const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp'
+const PDF_ACCEPT = 'application/pdf'
+
+const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
+  MANUAL: 'Manual',
+  WARRANTY: 'Warranty',
+  TECHNICAL_DATASHEET: 'Technical datasheet',
+}
+
+const DOCUMENT_KINDS: DocumentKind[] = ['MANUAL', 'WARRANTY', 'TECHNICAL_DATASHEET']
 
 const EMPTY_FORM: ProductEditorForm = {
   name: '',
@@ -29,6 +57,8 @@ const EMPTY_FORM: ProductEditorForm = {
   materials: [],
   sustainability: null,
   certifications: [],
+  images: [],
+  documents: [],
 }
 
 type ConflictState = {
@@ -62,6 +92,19 @@ type SavePayload = {
     issuingAuthority: string | null
     issueDate: string | null
     expirationDate: string | null
+    pdfAssetId: string | null
+  }>
+  images: Array<{
+    assetId: string
+    role: ImageRole
+    position: number
+    altText: string | null
+  }>
+  documents: Array<{
+    assetId: string
+    kind: DocumentKind
+    title: string | null
+    position: number
   }>
 }
 
@@ -94,6 +137,8 @@ function isProductDetail(value: unknown): value is ProductDetail {
     (candidate.originCountry === null || typeof candidate.originCountry === 'string') &&
     Array.isArray(candidate.materials) &&
     Array.isArray(candidate.certifications) &&
+    Array.isArray(candidate.images) &&
+    Array.isArray(candidate.documents) &&
     (candidate.sustainability === null || typeof candidate.sustainability === 'object')
   )
 }
@@ -127,6 +172,18 @@ function isSustainability(value: unknown): value is Sustainability {
   )
 }
 
+function isAssetSummary(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as { originalName?: unknown; detectedMime?: unknown; sizeBytes?: unknown }
+  return (
+    typeof candidate.originalName === 'string' &&
+    typeof candidate.detectedMime === 'string' &&
+    typeof candidate.sizeBytes === 'number'
+  )
+}
+
 function isCertification(value: unknown): value is Certification {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -137,7 +194,41 @@ function isCertification(value: unknown): value is Certification {
     (candidate.name === null || typeof candidate.name === 'string') &&
     (candidate.issuingAuthority === null || typeof candidate.issuingAuthority === 'string') &&
     (candidate.issueDate === null || typeof candidate.issueDate === 'string') &&
-    (candidate.expirationDate === null || typeof candidate.expirationDate === 'string')
+    (candidate.expirationDate === null || typeof candidate.expirationDate === 'string') &&
+    (candidate.pdfAssetId === null || typeof candidate.pdfAssetId === 'string') &&
+    (candidate.pdfAsset === null || isAssetSummary(candidate.pdfAsset))
+  )
+}
+
+function isProductImage(value: unknown): value is ProductImage {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Partial<ProductImage>
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.assetId === 'string' &&
+    (candidate.role === 'COVER' || candidate.role === 'GALLERY') &&
+    typeof candidate.position === 'number' &&
+    (candidate.altText === null || typeof candidate.altText === 'string') &&
+    isAssetSummary(candidate.asset)
+  )
+}
+
+function isProductDocument(value: unknown): value is ProductDocument {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Partial<ProductDocument>
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.assetId === 'string' &&
+    (candidate.kind === 'MANUAL' ||
+      candidate.kind === 'WARRANTY' ||
+      candidate.kind === 'TECHNICAL_DATASHEET') &&
+    typeof candidate.position === 'number' &&
+    (candidate.title === null || typeof candidate.title === 'string') &&
+    isAssetSummary(candidate.asset)
   )
 }
 
@@ -183,7 +274,41 @@ function fromCertification(certification: Certification, index: number): Certifi
     issuingAuthority: certification.issuingAuthority ?? '',
     issueDate: toDateInput(certification.issueDate),
     expirationDate: toDateInput(certification.expirationDate),
+    pdfAssetId: certification.pdfAssetId ?? '',
+    pdfOriginalName: certification.pdfAsset?.originalName ?? '',
+    pdfSizeBytes: certification.pdfAsset?.sizeBytes ?? null,
   }
+}
+
+function fromImage(image: ProductImage, index: number): ImageDraft {
+  return {
+    clientId: image.id || `image-${index}`,
+    assetId: image.assetId,
+    role: image.role,
+    altText: image.altText ?? '',
+    originalName: image.asset.originalName,
+    sizeBytes: image.asset.sizeBytes,
+  }
+}
+
+function fromDocument(document: ProductDocument, index: number): DocumentDraft {
+  return {
+    clientId: document.id || `document-${index}`,
+    assetId: document.assetId,
+    kind: document.kind,
+    title: document.title ?? '',
+    originalName: document.asset.originalName,
+    sizeBytes: document.asset.sizeBytes,
+  }
+}
+
+function findCoverImage(images: ImageDraft[]): ImageDraft | undefined {
+  return images.find((image) => image.role === 'COVER')
+}
+
+/** Position of a gallery image among gallery images, for display numbering. */
+function galleryIndex(images: ImageDraft[], index: number): number {
+  return images.slice(0, index).filter((image) => image.role === 'GALLERY').length
 }
 
 function fromDetail(detail: ProductDetail): ProductEditorForm {
@@ -210,10 +335,36 @@ function fromDetail(detail: ProductDetail): ProductEditorForm {
           }
         : null,
     certifications: detail.certifications.filter(isCertification).map(fromCertification),
+    images: detail.images
+      .filter(isProductImage)
+      .sort((left, right) =>
+        left.role === right.role ? left.position - right.position : left.role === 'COVER' ? -1 : 1,
+      )
+      .map(fromImage),
+    documents: detail.documents
+      .filter(isProductDocument)
+      .sort((left, right) => left.position - right.position)
+      .map(fromDocument),
   }
 }
 
 function toSavePayload(form: ProductEditorForm): SavePayload {
+  // `position` is unique per role, so the cover is pinned to 0 and gallery images are
+  // numbered in the order the editor holds them.
+  let galleryPosition = 0
+  const images = form.images.map((image) => {
+    const position = image.role === 'COVER' ? 0 : galleryPosition
+    if (image.role === 'GALLERY') {
+      galleryPosition += 1
+    }
+    return {
+      assetId: image.assetId,
+      role: image.role,
+      position,
+      altText: nullableText(image.altText),
+    }
+  })
+
   return {
     name: nullableText(form.name),
     sku: nullableText(form.sku),
@@ -244,6 +395,14 @@ function toSavePayload(form: ProductEditorForm): SavePayload {
       issuingAuthority: nullableText(certification.issuingAuthority),
       issueDate: nullableText(certification.issueDate),
       expirationDate: nullableText(certification.expirationDate),
+      pdfAssetId: nullableText(certification.pdfAssetId),
+    })),
+    images,
+    documents: form.documents.map((document, index) => ({
+      assetId: document.assetId,
+      kind: document.kind,
+      title: nullableText(document.title),
+      position: index,
     })),
   }
 }
@@ -294,7 +453,94 @@ function validateForm(form: ProductEditorForm): string | null {
       }
     }
   }
+
+  const coverCount = form.images.filter((image) => image.role === 'COVER').length
+  if (coverCount > 1) {
+    return 'Choose at most one cover image.'
+  }
+  const galleryCount = form.images.filter((image) => image.role === 'GALLERY').length
+  if (galleryCount > MAX_GALLERY_IMAGES) {
+    return `A product may have at most ${MAX_GALLERY_IMAGES} gallery images.`
+  }
+
   return null
+}
+
+/**
+ * Renders a private asset inline.
+ *
+ * The access token travels as an `Authorization` header, so an `<img src="/assets/...">`
+ * cannot authenticate. The bytes are fetched through the normal authenticated request
+ * and exposed as an object URL, which is revoked on unmount or when the asset changes.
+ */
+function AssetPreview({
+  request,
+  assetId,
+  alt,
+}: {
+  request: AuthenticatedRequest
+  assetId: string
+  alt: string
+}) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let created: string | null = null
+    setObjectUrl(null)
+    setFailed(false)
+
+    void fetchAssetObjectUrl(request, assetId)
+      .then((url) => {
+        created = url
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        setObjectUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailed(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      if (created !== null) {
+        URL.revokeObjectURL(created)
+      }
+    }
+  }, [request, assetId])
+
+  if (failed) {
+    return (
+      <div className="flex h-24 w-32 items-center justify-center rounded-box bg-base-200 text-xs text-base-content/60">
+        Preview unavailable
+      </div>
+    )
+  }
+
+  if (objectUrl === null) {
+    return (
+      <div className="flex h-24 w-32 items-center justify-center rounded-box bg-base-200 text-xs text-base-content/60">
+        Loading…
+      </div>
+    )
+  }
+
+  // Next disables its optimiser automatically for `blob:` sources, so the authenticated
+  // object URL is rendered as-is without a loader request.
+  return (
+    <Image
+      src={objectUrl}
+      alt={alt}
+      width={128}
+      height={96}
+      className="h-24 w-32 rounded-box object-cover"
+    />
+  )
 }
 
 export default function ProductEditorPage() {
@@ -312,6 +558,10 @@ export default function ProductEditorPage() {
   const [productError, setProductError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<ConflictState | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const coverImage = findCoverImage(form.images)
 
   const nextClientId = useCallback((prefix: string): string => {
     keyCounter.current += 1
@@ -460,6 +710,171 @@ export default function ProductEditorPage() {
         (_, certificationIndex) => certificationIndex !== index,
       ),
     }))
+  }
+
+  /**
+   * The single upload path.
+   *
+   * The file picker and drag-and-drop both call this, so there is exactly one
+   * implementation of "upload then hold the returned asset id in editor state".
+   * A failed upload reports the API's message and leaves the form untouched.
+   */
+  async function handleUpload(file: File): Promise<AssetUploadResponse | null> {
+    setIsUploading(true)
+    setUploadError(null)
+    try {
+      return await uploadAsset(request, file)
+    } catch (uploadFailure: unknown) {
+      setUploadError(describeApiError(uploadFailure, 'That file could not be uploaded.'))
+      return null
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  async function addImage(file: File, role: ImageRole) {
+    const asset = await handleUpload(file)
+    if (asset === null) {
+      return
+    }
+    setForm((current) => ({
+      ...current,
+      images: [
+        // Uploading a cover replaces the existing one, since a product may have
+        // exactly one and the API rejects a second.
+        ...(role === 'COVER'
+          ? current.images.filter((image) => image.role !== 'COVER')
+          : current.images),
+        {
+          clientId: nextClientId('image'),
+          assetId: asset.id,
+          role,
+          altText: '',
+          originalName: asset.originalName,
+          sizeBytes: asset.sizeBytes,
+        },
+      ],
+    }))
+  }
+
+  function updateImage(index: number, patch: Partial<ImageDraft>) {
+    setForm((current) => ({
+      ...current,
+      images: current.images.map((image, imageIndex) =>
+        imageIndex === index ? { ...image, ...patch } : image,
+      ),
+    }))
+  }
+
+  function removeImage(index: number) {
+    setForm((current) => ({
+      ...current,
+      images: current.images.filter((_, imageIndex) => imageIndex !== index),
+    }))
+  }
+
+  /**
+   * Reorders an image within its own role.
+   *
+   * Positions are recomputed from array order at save time, so swapping with the
+   * next image of the same role is enough. A cover never swaps, because there is only
+   * ever one.
+   */
+  function moveImage(index: number, direction: -1 | 1) {
+    setForm((current) => {
+      const image = current.images[index]
+      if (image === undefined) {
+        return current
+      }
+
+      let neighbour = index + direction
+      while (
+        neighbour >= 0 &&
+        neighbour < current.images.length &&
+        current.images[neighbour]?.role !== image.role
+      ) {
+        neighbour += direction
+      }
+
+      const target = current.images[neighbour]
+      if (target === undefined || target.role !== image.role) {
+        return current
+      }
+
+      const images = [...current.images]
+      images[index] = target
+      images[neighbour] = image
+      return { ...current, images }
+    })
+  }
+
+  async function addDocument(file: File, kind: DocumentKind) {
+    const asset = await handleUpload(file)
+    if (asset === null) {
+      return
+    }
+    setForm((current) => ({
+      ...current,
+      documents: [
+        ...current.documents,
+        {
+          clientId: nextClientId('document'),
+          assetId: asset.id,
+          kind,
+          title: '',
+          originalName: asset.originalName,
+          sizeBytes: asset.sizeBytes,
+        },
+      ],
+    }))
+  }
+
+  function updateDocument(index: number, patch: Partial<DocumentDraft>) {
+    setForm((current) => ({
+      ...current,
+      documents: current.documents.map((document, documentIndex) =>
+        documentIndex === index ? { ...document, ...patch } : document,
+      ),
+    }))
+  }
+
+  function removeDocument(index: number) {
+    setForm((current) => ({
+      ...current,
+      documents: current.documents.filter((_, documentIndex) => documentIndex !== index),
+    }))
+  }
+
+  function moveDocument(index: number, direction: -1 | 1) {
+    setForm((current) => {
+      const target = index + direction
+      const document = current.documents[index]
+      const neighbour = current.documents[target]
+      if (document === undefined || neighbour === undefined) {
+        return current
+      }
+
+      const documents = [...current.documents]
+      documents[index] = neighbour
+      documents[target] = document
+      return { ...current, documents }
+    })
+  }
+
+  async function attachCertificationPdf(index: number, file: File) {
+    const asset = await handleUpload(file)
+    if (asset === null) {
+      return
+    }
+    updateCertification(index, {
+      pdfAssetId: asset.id,
+      pdfOriginalName: asset.originalName,
+      pdfSizeBytes: asset.sizeBytes,
+    })
+  }
+
+  function removeCertificationPdf(index: number) {
+    updateCertification(index, { pdfAssetId: '', pdfOriginalName: '', pdfSizeBytes: null })
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
@@ -770,6 +1185,284 @@ export default function ProductEditorPage() {
 
           <section
             className="card border border-base-300 bg-base-100 shadow-sm"
+            aria-labelledby="images-heading"
+          >
+            <div className="card-body gap-5">
+              <div>
+                <h2 id="images-heading" className="card-title text-xl">
+                  Images
+                </h2>
+                <p className="mt-1 text-sm text-base-content/70">
+                  One cover image and up to {MAX_GALLERY_IMAGES} gallery images. JPEG, PNG or WebP,
+                  up to 5 MiB each. The API re-encodes every upload and strips metadata.
+                </p>
+              </div>
+
+              {uploadError !== null ? (
+                <p role="alert" className="text-sm text-error">
+                  {uploadError}
+                </p>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="form-control">
+                  <label className="label" htmlFor="cover-image">
+                    <span className="label-text font-medium">
+                      {coverImage === undefined ? 'Cover image' : 'Replace cover image'}
+                    </span>
+                  </label>
+                  <input
+                    id="cover-image"
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file !== undefined) {
+                        void addImage(file, 'COVER')
+                      }
+                    }}
+                    className="file-input file-input-bordered w-full"
+                  />
+                </div>
+                <div className="form-control">
+                  <label className="label" htmlFor="gallery-image">
+                    <span className="label-text font-medium">Add gallery image</span>
+                  </label>
+                  <input
+                    id="gallery-image"
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file !== undefined) {
+                        void addImage(file, 'GALLERY')
+                      }
+                    }}
+                    className="file-input file-input-bordered w-full"
+                  />
+                </div>
+              </div>
+
+              <label
+                htmlFor="gallery-image"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (file !== undefined) {
+                    void addImage(file, 'GALLERY')
+                  }
+                }}
+                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
+              >
+                Or drop an image here to add it to the gallery.
+              </label>
+
+              {form.images.length === 0 ? (
+                <p className="text-sm text-base-content/70">No images attached yet.</p>
+              ) : (
+                <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {form.images.map((image, index) => (
+                    <li
+                      key={image.clientId}
+                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
+                    >
+                      <AssetPreview
+                        request={request}
+                        assetId={image.assetId}
+                        alt={image.altText.length > 0 ? image.altText : image.originalName}
+                      />
+                      <p className="text-sm font-semibold">
+                        {image.role === 'COVER'
+                          ? 'Cover'
+                          : `Gallery ${galleryIndex(form.images, index) + 1}`}
+                      </p>
+                      <p
+                        className="truncate text-xs text-base-content/70"
+                        title={image.originalName}
+                      >
+                        {image.originalName}
+                      </p>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`image-alt-${index}`}>
+                          <span className="label-text text-xs">Alt text</span>
+                        </label>
+                        <input
+                          id={`image-alt-${index}`}
+                          type="text"
+                          value={image.altText}
+                          maxLength={240}
+                          onChange={(event) => updateImage(index, { altText: event.target.value })}
+                          className="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          disabled={image.role === 'COVER'}
+                          onClick={() => moveImage(index, -1)}
+                        >
+                          Move up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          disabled={image.role === 'COVER'}
+                          onClick={() => moveImage(index, 1)}
+                        >
+                          Move down
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => removeImage(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section
+            className="card border border-base-300 bg-base-100 shadow-sm"
+            aria-labelledby="documents-heading"
+          >
+            <div className="card-body gap-5">
+              <div>
+                <h2 id="documents-heading" className="card-title text-xl">
+                  Documents
+                </h2>
+                <p className="mt-1 text-sm text-base-content/70">
+                  Manuals, warranties and technical datasheets as PDF, up to 10 MiB each.
+                </p>
+              </div>
+
+              <label
+                htmlFor="document-upload-MANUAL"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (file !== undefined) {
+                    void addDocument(file, 'MANUAL')
+                  }
+                }}
+                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
+              >
+                Drop a PDF here to attach it as a manual.
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {DOCUMENT_KINDS.map((kind) => (
+                  <div className="form-control" key={kind}>
+                    <label className="label" htmlFor={`document-upload-${kind}`}>
+                      <span className="label-text font-medium">
+                        Add {DOCUMENT_KIND_LABELS[kind].toLowerCase()}
+                      </span>
+                    </label>
+                    <input
+                      id={`document-upload-${kind}`}
+                      type="file"
+                      accept={PDF_ACCEPT}
+                      disabled={isUploading}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        event.target.value = ''
+                        if (file !== undefined) {
+                          void addDocument(file, kind)
+                        }
+                      }}
+                      className="file-input file-input-bordered w-full"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {form.documents.length === 0 ? (
+                <p className="text-sm text-base-content/70">No documents attached yet.</p>
+              ) : (
+                <ul className="grid gap-4 md:grid-cols-2">
+                  {form.documents.map((document, index) => (
+                    <li
+                      key={document.clientId}
+                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
+                    >
+                      <p className="truncate text-sm font-semibold" title={document.originalName}>
+                        {document.originalName}
+                      </p>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`document-kind-${index}`}>
+                          <span className="label-text text-xs">Type</span>
+                        </label>
+                        <select
+                          id={`document-kind-${index}`}
+                          value={document.kind}
+                          onChange={(event) =>
+                            updateDocument(index, { kind: event.target.value as DocumentKind })
+                          }
+                          className="select select-bordered select-sm w-full"
+                        >
+                          {DOCUMENT_KINDS.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {DOCUMENT_KIND_LABELS[kind]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`document-title-${index}`}>
+                          <span className="label-text text-xs">Title</span>
+                        </label>
+                        <input
+                          id={`document-title-${index}`}
+                          type="text"
+                          value={document.title}
+                          maxLength={240}
+                          onChange={(event) => updateDocument(index, { title: event.target.value })}
+                          className="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => moveDocument(index, -1)}
+                        >
+                          Move up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => moveDocument(index, 1)}
+                        >
+                          Move down
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => removeDocument(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section
+            className="card border border-base-300 bg-base-100 shadow-sm"
             aria-labelledby="materials-heading"
           >
             <div className="card-body gap-5">
@@ -1072,7 +1765,8 @@ export default function ProductEditorPage() {
                     Certifications
                   </h2>
                   <p className="mt-1 text-sm text-base-content/70">
-                    Store certification metadata only. PDF uploads are not available yet.
+                    Attach an optional PDF to each certification. Metadata alone is enough to save a
+                    draft.
                   </p>
                 </div>
                 <button
@@ -1089,6 +1783,9 @@ export default function ProductEditorPage() {
                           issuingAuthority: '',
                           issueDate: '',
                           expirationDate: '',
+                          pdfAssetId: '',
+                          pdfOriginalName: '',
+                          pdfSizeBytes: null,
                         },
                       ],
                     }))
@@ -1174,6 +1871,56 @@ export default function ProductEditorPage() {
                           />
                         </div>
                       </div>
+
+                      <div className="mt-4 rounded-box border border-base-300 p-4">
+                        <p className="text-sm font-semibold">Certification PDF</p>
+                        {certification.pdfAssetId.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                            <span
+                              className="truncate text-sm text-base-content/80"
+                              title={certification.pdfOriginalName}
+                            >
+                              {certification.pdfOriginalName.length > 0
+                                ? certification.pdfOriginalName
+                                : 'PDF attached'}
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              <label
+                                className="btn btn-outline btn-xs"
+                                htmlFor={`certification-pdf-${index}`}
+                              >
+                                Replace
+                              </label>
+                              <button
+                                type="button"
+                                className="btn btn-error btn-outline btn-xs"
+                                onClick={() => removeCertificationPdf(index)}
+                              >
+                                Remove PDF
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-sm text-base-content/70">
+                            No PDF attached to this certification.
+                          </p>
+                        )}
+                        <input
+                          id={`certification-pdf-${index}`}
+                          type="file"
+                          accept={PDF_ACCEPT}
+                          disabled={isUploading}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            event.target.value = ''
+                            if (file !== undefined) {
+                              void attachCertificationPdf(index, file)
+                            }
+                          }}
+                          className="file-input file-input-bordered file-input-sm mt-3 w-full"
+                        />
+                      </div>
+
                       <div className="mt-4 flex justify-end">
                         <button
                           type="button"
