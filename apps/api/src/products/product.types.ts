@@ -17,12 +17,44 @@ export type SustainabilityResponse = {
   recyclable: boolean | null
 }
 
+/**
+ * Display metadata for a linked asset.
+ *
+ * Bytes are never included here: the editor fetches them from `GET /assets/:id`,
+ * which keeps binary content out of product JSON entirely.
+ */
+export type AssetSummary = {
+  originalName: string
+  detectedMime: string
+  sizeBytes: number
+}
+
 export type CertificationResponse = {
   id: string
   name: string | null
   issuingAuthority: string | null
   issueDate: string | null
   expirationDate: string | null
+  pdfAssetId: string | null
+  pdfAsset: AssetSummary | null
+}
+
+export type ProductImageResponse = {
+  id: string
+  assetId: string
+  role: 'COVER' | 'GALLERY'
+  position: number
+  altText: string | null
+  asset: AssetSummary
+}
+
+export type ProductDocumentResponse = {
+  id: string
+  assetId: string
+  kind: 'MANUAL' | 'WARRANTY' | 'TECHNICAL_DATASHEET'
+  title: string | null
+  position: number
+  asset: AssetSummary
 }
 
 export type ProductListItem = {
@@ -45,6 +77,8 @@ export type ProductDetail = ProductListItem & {
   materials: MaterialResponse[]
   sustainability: SustainabilityResponse | null
   certifications: CertificationResponse[]
+  images: ProductImageResponse[]
+  documents: ProductDocumentResponse[]
 }
 
 export type ProductListResponse = {

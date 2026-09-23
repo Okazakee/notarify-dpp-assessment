@@ -1,20 +1,30 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
 import { isUUID } from 'class-validator'
+import { assetKindForMime } from '../assets/asset-processing.js'
+import { AssetsService } from '../assets/assets.service.js'
 import { ApiException } from '../common/api-exception.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { CreateProductDto } from './dto/create-product.dto.js'
 import type { ListProductsQueryDto } from './dto/list-products-query.dto.js'
-import type {
-  CertificationInputDto,
-  MaterialInputDto,
-  SustainabilityInputDto,
+import {
+  type CertificationInputDto,
+  type DocumentInputDto,
+  type DocumentKindInput,
+  type ImageInputDto,
+  type ImageRoleInput,
+  MAX_GALLERY_IMAGES,
+  MAX_PRODUCT_DOCUMENTS,
+  type MaterialInputDto,
+  type SustainabilityInputDto,
 } from './dto/nested-product.dto.js'
 import type { PatchProductDto } from './dto/patch-product.dto.js'
 import type {
   CertificationResponse,
   MaterialResponse,
   ProductDetail,
+  ProductDocumentResponse,
+  ProductImageResponse,
   ProductListItem,
   ProductListResponse,
   ProductStatus,
@@ -26,12 +36,40 @@ const MATERIAL_ORDER: Prisma.MaterialOrderByWithRelationInput[] = [
   { id: 'asc' },
 ]
 const CERTIFICATION_ORDER: Prisma.CertificationOrderByWithRelationInput[] = [{ id: 'asc' }]
+// Cover sorts before gallery, then position; `position` is unique per role, so this
+// ordering is total.
+const IMAGE_ORDER: Prisma.ProductImageOrderByWithRelationInput[] = [
+  { role: 'asc' },
+  { position: 'asc' },
+  { id: 'asc' },
+]
+const DOCUMENT_ORDER: Prisma.ProductDocumentOrderByWithRelationInput[] = [
+  { position: 'asc' },
+  { id: 'asc' },
+]
+
+const ASSET_SUMMARY_SELECT = {
+  originalName: true,
+  detectedMime: true,
+  sizeBytes: true,
+} as const
 
 const PRODUCT_DETAIL_INCLUDE = {
   category: { select: { id: true, name: true } },
   materials: { orderBy: MATERIAL_ORDER },
   sustainability: true,
-  certifications: { orderBy: CERTIFICATION_ORDER },
+  certifications: {
+    orderBy: CERTIFICATION_ORDER,
+    include: { pdfAsset: { select: ASSET_SUMMARY_SELECT } },
+  },
+  images: {
+    orderBy: IMAGE_ORDER,
+    include: { asset: { select: ASSET_SUMMARY_SELECT } },
+  },
+  documents: {
+    orderBy: DOCUMENT_ORDER,
+    include: { asset: { select: ASSET_SUMMARY_SELECT } },
+  },
   passport: { select: { withdrawnAt: true } },
 }
 
@@ -61,7 +99,10 @@ type ScalarProductFields = Pick<
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly assets: AssetsService,
+  ) {}
 
   async listCategories(): Promise<Array<{ id: string; stableCode: string; name: string }>> {
     return this.prisma.category.findMany({
@@ -79,6 +120,13 @@ export class ProductsService {
       return await this.prisma.$transaction(async (tx) => {
         await this.validateCategory(tx, input.categoryId)
         await this.validateChildIds(tx, input.materials, input.certifications)
+        await this.validateAssetReferences(
+          tx,
+          companyId,
+          input.images,
+          input.documents,
+          input.certifications,
+        )
 
         const product = await tx.product.create({
           data: {
@@ -106,6 +154,12 @@ export class ProductsService {
         }
         if (input.certifications !== undefined) {
           await this.insertCertifications(tx, product.id, input.certifications)
+        }
+        if (input.images !== undefined) {
+          await this.insertImages(tx, product.id, input.images)
+        }
+        if (input.documents !== undefined) {
+          await this.insertDocuments(tx, product.id, input.documents)
         }
 
         const result = await tx.product.findUnique({
@@ -148,6 +202,13 @@ export class ProductsService {
       return await this.prisma.$transaction(async (tx) => {
         await this.validateCategory(tx, input.categoryId)
         await this.validateChildIds(tx, input.materials, input.certifications, id)
+        await this.validateAssetReferences(
+          tx,
+          companyId,
+          input.images,
+          input.documents,
+          input.certifications,
+        )
 
         const claimed = await tx.$queryRaw<Array<{ draftRevision: number }>>(Prisma.sql`
           UPDATE "Product"
@@ -194,6 +255,12 @@ export class ProductsService {
         }
         if (input.certifications !== undefined) {
           await this.replaceCertifications(tx, id, input.certifications)
+        }
+        if (input.images !== undefined) {
+          await this.replaceImages(tx, id, input.images)
+        }
+        if (input.documents !== undefined) {
+          await this.replaceDocuments(tx, id, input.documents)
         }
 
         const result = await tx.product.findUnique({
@@ -393,6 +460,8 @@ export class ProductsService {
     materials?: MaterialInputDto[] | null
     certifications?: CertificationInputDto[] | null
     sustainability?: SustainabilityInputDto | null
+    images?: ImageInputDto[] | null
+    documents?: DocumentInputDto[] | null
   }): void {
     if (Object.hasOwn(input, 'materials') && input.materials === null) {
       throw this.validationError('materials must be an array when supplied.')
@@ -400,6 +469,14 @@ export class ProductsService {
     if (Object.hasOwn(input, 'certifications') && input.certifications === null) {
       throw this.validationError('certifications must be an array when supplied.')
     }
+    if (Object.hasOwn(input, 'images') && input.images === null) {
+      throw this.validationError('images must be an array when supplied.')
+    }
+    if (Object.hasOwn(input, 'documents') && input.documents === null) {
+      throw this.validationError('documents must be an array when supplied.')
+    }
+    this.validateImageCollection(input.images)
+    this.validateDocumentCollection(input.documents)
     if (
       input.sustainability !== undefined &&
       input.sustainability !== null &&
@@ -482,6 +559,261 @@ export class ProductsService {
     return data
   }
 
+  /**
+   * Enforces the cover and gallery rules that a schema constraint cannot express.
+   *
+   * The database has a filtered unique index guaranteeing at most one cover per
+   * product; the gallery bound and the duplicate-asset rule are policy, so they are
+   * checked here where a precise error message is possible.
+   */
+  private validateImageCollection(images: ImageInputDto[] | undefined | null): void {
+    if (images === undefined || images === null) {
+      return
+    }
+
+    let coverCount = 0
+    let galleryCount = 0
+    const assetIds = new Set<string>()
+    const positionsByRole: Record<ImageRoleInput, Set<number>> = {
+      COVER: new Set(),
+      GALLERY: new Set(),
+    }
+
+    for (const image of images) {
+      if (!image || typeof image !== 'object') {
+        throw this.validationError('images must contain objects.')
+      }
+
+      if (assetIds.has(image.assetId)) {
+        throw this.validationError('An image asset may only be attached once per product.')
+      }
+      assetIds.add(image.assetId)
+
+      if (image.role === 'COVER') {
+        coverCount += 1
+      } else {
+        galleryCount += 1
+      }
+
+      if (image.position !== undefined) {
+        const positions = positionsByRole[image.role]
+        if (positions.has(image.position)) {
+          throw this.validationError('Image positions must be unique within each role.')
+        }
+        positions.add(image.position)
+      }
+    }
+
+    if (coverCount > 1) {
+      throw this.validationError('A product may have at most one cover image.')
+    }
+    if (galleryCount > MAX_GALLERY_IMAGES) {
+      throw this.validationError(`A product may have at most ${MAX_GALLERY_IMAGES} gallery images.`)
+    }
+  }
+
+  private validateDocumentCollection(documents: DocumentInputDto[] | undefined | null): void {
+    if (documents === undefined || documents === null) {
+      return
+    }
+
+    const assetIds = new Set<string>()
+    const positions = new Set<number>()
+
+    for (const document of documents) {
+      if (!document || typeof document !== 'object') {
+        throw this.validationError('documents must contain objects.')
+      }
+
+      if (assetIds.has(document.assetId)) {
+        throw this.validationError('A document asset may only be attached once per product.')
+      }
+      assetIds.add(document.assetId)
+
+      if (document.position !== undefined) {
+        if (positions.has(document.position)) {
+          throw this.validationError('Document positions must be unique within a product.')
+        }
+        positions.add(document.position)
+      }
+    }
+
+    if (documents.length > MAX_PRODUCT_DOCUMENTS) {
+      throw this.validationError(`A product may have at most ${MAX_PRODUCT_DOCUMENTS} documents.`)
+    }
+  }
+
+  /**
+   * Confirms every referenced asset is accepted, belongs to the caller's company and
+   * is of the family the reference requires.
+   *
+   * Runs before the revision is claimed, so an invalid asset reference cannot bump
+   * `draftRevision` or partially mutate attachments: the transaction rolls back with
+   * nothing written.
+   */
+  private async validateAssetReferences(
+    tx: MutationTransaction,
+    companyId: string,
+    images: ImageInputDto[] | undefined,
+    documents: DocumentInputDto[] | undefined,
+    certifications: CertificationInputDto[] | undefined,
+  ): Promise<void> {
+    const required: Array<{ assetId: string; expected: 'IMAGE' | 'PDF'; label: string }> = []
+
+    for (const image of images ?? []) {
+      required.push({ assetId: image.assetId, expected: 'IMAGE', label: 'image' })
+    }
+    for (const document of documents ?? []) {
+      required.push({ assetId: document.assetId, expected: 'PDF', label: 'document' })
+    }
+    for (const certification of certifications ?? []) {
+      if (certification.pdfAssetId !== undefined && certification.pdfAssetId !== null) {
+        required.push({
+          assetId: certification.pdfAssetId,
+          expected: 'PDF',
+          label: 'certification PDF',
+        })
+      }
+    }
+
+    if (required.length === 0) {
+      return
+    }
+
+    const resolved = await this.assets.findLinkableAssets(
+      companyId,
+      required.map((entry) => entry.assetId),
+      tx,
+    )
+
+    for (const entry of required) {
+      const asset = resolved.get(entry.assetId)
+      if (asset === undefined) {
+        throw this.validationError(
+          `The ${entry.label} asset is not an accepted asset of this company.`,
+        )
+      }
+      if (assetKindForMime(asset.detectedMime) !== entry.expected) {
+        throw this.validationError(`The ${entry.label} asset has an incompatible file type.`)
+      }
+    }
+  }
+
+  /**
+   * Assigns each image a position, filling gaps when a position is omitted.
+   *
+   * `position` is unique per role, so an omitted position is placed in the first free
+   * slot for its role rather than at the array index, which keeps the result total and
+   * deterministic even in a mixed request.
+   */
+  private imageRows(
+    productId: string,
+    images: ImageInputDto[],
+  ): Array<{
+    productId: string
+    assetId: string
+    role: ImageRoleInput
+    position: number
+    altText: string | null
+  }> {
+    const used: Record<ImageRoleInput, Set<number>> = { COVER: new Set(), GALLERY: new Set() }
+    for (const image of images) {
+      if (image.position !== undefined) {
+        used[image.role].add(image.position)
+      }
+    }
+
+    return images.map((image) => {
+      let position = image.position
+      if (position === undefined) {
+        let candidate = 0
+        while (used[image.role].has(candidate)) {
+          candidate += 1
+        }
+        used[image.role].add(candidate)
+        position = candidate
+      }
+      return {
+        productId,
+        assetId: image.assetId,
+        role: image.role,
+        position,
+        altText: image.altText ?? null,
+      }
+    })
+  }
+
+  private documentRows(
+    productId: string,
+    documents: DocumentInputDto[],
+  ): Array<{
+    productId: string
+    assetId: string
+    kind: DocumentKindInput
+    title: string | null
+    position: number
+  }> {
+    const used = new Set<number>()
+    for (const document of documents) {
+      if (document.position !== undefined) {
+        used.add(document.position)
+      }
+    }
+
+    return documents.map((document) => {
+      let position = document.position
+      if (position === undefined) {
+        let candidate = 0
+        while (used.has(candidate)) {
+          candidate += 1
+        }
+        used.add(candidate)
+        position = candidate
+      }
+      return {
+        productId,
+        assetId: document.assetId,
+        kind: document.kind,
+        title: document.title ?? null,
+        position,
+      }
+    })
+  }
+
+  private async insertImages(
+    tx: MutationTransaction,
+    productId: string,
+    images: ImageInputDto[],
+  ): Promise<void> {
+    await tx.productImage.createMany({ data: this.imageRows(productId, images) })
+  }
+
+  private async replaceImages(
+    tx: MutationTransaction,
+    productId: string,
+    images: ImageInputDto[],
+  ): Promise<void> {
+    await tx.productImage.deleteMany({ where: { productId } })
+    await this.insertImages(tx, productId, images)
+  }
+
+  private async insertDocuments(
+    tx: MutationTransaction,
+    productId: string,
+    documents: DocumentInputDto[],
+  ): Promise<void> {
+    await tx.productDocument.createMany({ data: this.documentRows(productId, documents) })
+  }
+
+  private async replaceDocuments(
+    tx: MutationTransaction,
+    productId: string,
+    documents: DocumentInputDto[],
+  ): Promise<void> {
+    await tx.productDocument.deleteMany({ where: { productId } })
+    await this.insertDocuments(tx, productId, documents)
+  }
+
   private async insertMaterials(
     tx: MutationTransaction,
     productId: string,
@@ -522,6 +854,7 @@ export class ProductsService {
         issuingAuthority: certification.issuingAuthority ?? null,
         issueDate: this.parseDateOnly(certification.issueDate),
         expirationDate: this.parseDateOnly(certification.expirationDate),
+        pdfAssetId: certification.pdfAssetId ?? null,
       })),
     })
   }
@@ -567,6 +900,43 @@ export class ProductsService {
           issuingAuthority: certification.issuingAuthority,
           issueDate: this.serializeDate(certification.issueDate),
           expirationDate: this.serializeDate(certification.expirationDate),
+          pdfAssetId: certification.pdfAssetId,
+          pdfAsset:
+            certification.pdfAsset === null
+              ? null
+              : {
+                  originalName: certification.pdfAsset.originalName,
+                  detectedMime: certification.pdfAsset.detectedMime,
+                  sizeBytes: Number(certification.pdfAsset.sizeBytes),
+                },
+        }),
+      ),
+      images: product.images.map(
+        (image): ProductImageResponse => ({
+          id: image.id,
+          assetId: image.assetId,
+          role: image.role,
+          position: image.position,
+          altText: image.altText,
+          asset: {
+            originalName: image.asset.originalName,
+            detectedMime: image.asset.detectedMime,
+            sizeBytes: Number(image.asset.sizeBytes),
+          },
+        }),
+      ),
+      documents: product.documents.map(
+        (document): ProductDocumentResponse => ({
+          id: document.id,
+          assetId: document.assetId,
+          kind: document.kind,
+          title: document.title,
+          position: document.position,
+          asset: {
+            originalName: document.asset.originalName,
+            detectedMime: document.asset.detectedMime,
+            sizeBytes: Number(document.asset.sizeBytes),
+          },
         }),
       ),
     }
