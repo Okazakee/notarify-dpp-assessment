@@ -29,13 +29,13 @@ Bound ingestion rate and input size. Under analytics persistence failure, keep t
 
 ## Retention proposal
 
-Store raw event detail for seven days, then retain daily counts for 90 days. Values are demo policy defaults pending the privacy review described in 01. Convert raw events to daily aggregates atomically before deleting them; aggregate queries must combine non-overlapping raw and rolled-up periods to avoid double counts.
+Store raw event detail for seven days, then retain daily counts for 90 days. Values are demo policy defaults; the data boundary and the claims this project does not make are recorded in 01. Convert raw events to daily aggregates atomically before deleting them; aggregate queries must combine non-overlapping raw and rolled-up periods to avoid double counts.
 
 Protect raw IP data with Admin-only access and redact it from ordinary app/proxy logs where feasible. Test the retention task with a fixed clock. Hashing an IP is not automatically anonymization. Synthetic seed events must be identifiable as synthetic in documentation.
 
 ## Redis scope
 
-Use Redis for immutable published snapshot content keyed by passport/version/schema version, with a bounded TTL. Always read current publication visibility/version from PostgreSQL before serving cached content; combine fresh review/status metadata after lookup. This makes withdrawal and review changes effective without trusting stale cached status.
+Use Redis for immutable published snapshot content keyed by passport/version/schema version, with a bounded TTL. Always read current publication visibility/version from PostgreSQL before serving cached content; combine fresh visibility/status metadata after lookup. This makes withdrawal and status changes effective without trusting stale cached status.
 
 Cache does not own sessions, analytics events or publication truth. Do not cache authenticated responses or the QR redirect. Redis failure falls back to PostgreSQL with bounded timeouts and logs, while PostgreSQL failure returns an honest unavailable response. Remove keys on deletion as hygiene, but correctness must not depend only on successful invalidation.
 

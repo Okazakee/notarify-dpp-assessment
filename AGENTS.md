@@ -17,7 +17,7 @@ Implemented:
 - **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, publication and republish, publish authorization, Passport/PassportVersion, PassportVersionAsset writes, public passport pages, public asset visibility or downloads, company logo, QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
+Not implemented, and not to be assumed: product delete/withdraw, publication and republish, Passport/PassportVersion, PassportVersionAsset writes, public passport pages, public asset visibility or downloads, company logo upload (Settings), QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
 
 ### Proven asset invariants — do not weaken
 
@@ -62,7 +62,9 @@ Rules:
 
 **Recorded but deliberately unimplemented:** publishing is **not** Admin-only. An Editor may publish and republish. No code may gate publish to `ADMIN` until that decision is recorded as final, and the publish permission itself is not implemented anywhere yet.
 
-Still open: permission semantics beyond publishing, verification badge meaning, published-edit visibility, analytics definitions and retention, session lifetimes, file limits, historical-version visibility, audit retention. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
+Still open: permission semantics beyond publishing, published-edit visibility, analytics definitions and retention, session lifetimes, audit retention. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
+
+Settled and recorded, so do not re-open them from a spec: **verification badge meaning** is a prototype/application-level indicator on an active published passport, with no review or approval subsystem required (`PassportReview` may stay unused infrastructure), and **historical-version visibility** is back-office only with no public historical route. **File limits** are locked and implemented — see section B5 of `docs/IMPLEMENTATION-DECISIONS.md`.
 
 - Do not implement a proposal as settled fact, and do not silently choose between materially different options.
 - Surface the unresolved decision, state the options and trade-offs, and get it recorded before building on it.
@@ -70,7 +72,7 @@ Still open: permission semantics beyond publishing, verification badge meaning, 
 
 ## Module boundaries
 
-- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth` and `src/products`; the generated Prisma client lives in `src/generated` and is not committed.
+- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth`, `src/products` and `src/assets`; the generated Prisma client lives in `src/generated` and is not committed.
 - `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow, the product list and the product draft editor.
 - `packages/api-client` — reserved for generated API types; **still empty**.
 - `prisma` — schema, migrations, `seed.ts` (run with `pnpm db:seed`) and `verification/invariant-checks.sql`.
@@ -115,7 +117,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts` and `apps/api/test/products.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (2 suites, 29 tests, real PostgreSQL); `e2e/auth.spec.ts` and `e2e/products.spec.ts` via `pnpm test:e2e` (6 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts` and `apps/api/test/product-attachments.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (4 suites, 61 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts` and `e2e/assets.spec.ts` via `pnpm test:e2e` (9 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.
