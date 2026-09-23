@@ -2,7 +2,7 @@
 
 Technical assessment submission for **Notarify**: a Digital Product Passport (DPP) application.
 
-> **Status: Milestone 1 merged.** The validated schema and initial PostgreSQL migration, the hardened authentication flow, and Product draft CRUD with optimistic concurrency are implemented, verified and merged into `main`. Everything downstream of drafts is not: no uploads, publication, passports, QR, PDF, analytics, Redis, dashboards, Users/Settings or deployment. Nothing here is a claim of working software beyond what the sections below describe.
+> **Status: Milestone 1 merged; the Assets slice is implemented on `build/assets` and awaits acceptance.** The validated schema and initial PostgreSQL migration, the hardened authentication flow, and Product draft CRUD with optimistic concurrency are implemented, verified and merged into `main`. On this branch, binary asset upload with private retrieval and product image/document/certification-PDF attachments are implemented and verified. Publication, passports, QR, PDF export, analytics, Redis, dashboards, Users/Settings and deployment are not implemented. Nothing here is a claim of working software beyond what the sections below describe.
 
 ## The assessment
 
@@ -63,9 +63,9 @@ pnpm db:migrate               # apply migrations
 
 `prisma/verification/invariant-checks.sql` re-checks the schema-level invariants against an already-migrated database; it rolls back everything it inserts.
 
-The authentication slice and product **draft** CRUD exist. The API serves `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `GET /categories`, and `GET`/`POST`/`PATCH` on `/products` (draft editing with optimistic revision checks). The frontend provides login, the workspace, the product list with filters and pagination, and a draft editor covering General Information, Materials, Sustainability and Certifications.
+The authentication slice, product **draft** CRUD, and the Assets slice exist. The API serves `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `GET /categories`, `POST`/`GET` on `/assets` (validated upload and private retrieval), and `GET`/`POST`/`PATCH` on `/products` (draft editing with optimistic revision checks, including image, document and certification-PDF attachments). The frontend provides login, the workspace, the product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 
-Not implemented: product delete/withdraw, publication and passports, publish authorization, uploads and asset linking, QR, PDF, analytics, Redis, dashboards, Users/Settings, version review, and deployment.
+Not implemented: product delete/withdraw, publication and passports, publish authorization, QR, PDF export, analytics, Redis, dashboards, Users/Settings, version review, and deployment.
 
 ```bash
 pnpm lint && pnpm typecheck && pnpm build     # static checks

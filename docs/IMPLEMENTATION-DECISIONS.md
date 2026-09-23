@@ -85,6 +85,24 @@ The revision is claimed in one transaction with a conditional `UPDATE ... WHERE 
 
 Deliberately **not** enforced at draft save: publication completeness, and the rule that material percentages total 100. Those remain publication prerequisites. A duplicate `(companyId, serialNumber)` maps to 409 `PRODUCT_SERIAL_CONFLICT`; SKU may repeat.
 
+### B5. Assets decisions locked in the build/assets round
+
+Approved by Cristian in the milestone prompt for the Assets slice, and implemented on `build/assets`. Recorded here rather than by rewriting the planning text in the specs, which stays as it was written.
+
+| Decision | Value |
+| --- | --- |
+| Binary storage | PostgreSQL `AssetContent.bytea`, now **implemented**. `Asset` holds metadata only. No object storage, no local upload volume, no presigned URLs. |
+| Accepted upload types | Images: JPEG, PNG, WebP. Documents and certification PDFs: PDF. SVG, HTML, XML-based active formats, archives and executables are rejected. Server-generated artifacts (for example a future QR PNG) are not user uploads and are outside this policy. |
+| Limits | 5 MiB per image, 10 MiB per PDF, 12 gallery images, 20 documents, 20 certifications per product. The multipart reader is capped at the largest per-type limit; the tighter per-type limit is applied once the content is identified. No global storage quota and no dedicated upload rate limiter in this milestone. |
+| Content detection | `file-type` 22.1.1 (MIT). Detection is from bytes only; the declared MIME type, filename and extension are never authoritative. `file-type` matches magic numbers alone, so PDF additionally requires a bounded structural check (header, cross-reference pointer, end-of-file marker). |
+| Image processing | `sharp` 0.35.4 (Apache-2.0; the bundled libvips prebuild is LGPL-3.0-or-later, dynamically linked and separately distributed). Node 24 supported, prebuilt binaries via optional dependencies, no install script. |
+| Normalization strategy | One strategy: decode, bound the decode with `limitInputPixels`, reject dimensions beyond 8192 in either axis or 40 megapixels total, bake EXIF orientation into the pixels, then re-encode **in the input's own format** at quality 90 for JPEG/WebP. Re-encoding proves decodability and drops all metadata. No thumbnails, no resized variants, no format conversion. |
+| Asset visibility | Private to the owning company for this milestone. `GET /assets/:id` requires a current authenticated actor and scopes by `companyId` in the query, so a foreign asset is indistinguishable from a missing one. There is no public asset route and no public download. |
+| Immutability | An accepted asset's bytes are never overwritten. Replacing a file creates a new `Asset`. Garbage collection of unreferenced uploads is deferred. |
+| Linking model | Upload first, then link accepted `assetId` values during a product save. Uploading does not touch `draftRevision`; linking does. Unlinked accepted assets may exist temporarily. |
+
+Two characteristics of the image strategy are recorded rather than treated as defects: the byte limit applies to the uploaded file, so a normalized image can in principle be somewhat larger than the limit it passed; and the PDF structural check rejects a legitimate PDF carrying more than roughly 4 KB of trailing data after `%%EOF`. Both are bounded and neither is a security boundary. PDF malware scanning and CDR remain absent, as the spec already states.
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.
@@ -97,7 +115,7 @@ The recommendations below make the schema draft coherent. They are not approvals
 | Analytics semantics | `QR_HIT` = QR-link URL request; `VIEW` = rendered public page event; never call either a unique person/scan. | Different labels/collection contract. | Dashboard labels and retention query boundaries derive from these definitions. | **Before analytics API/UI implementation**. |
 | Analytics retention | Proposed 7 days raw detail, 90 days daily counts; raw metadata is Admin-only. | Different period, no raw IP, or no retained analytics. | This is a privacy policy default, not a legal conclusion; scheduled retention/backup scope changes with it. | **Before analytics persistence and production-like data collection**. |
 | Access/refresh lifetimes and concurrent refresh policy | 10-minute access JWT; 7-day absolute session; strict reuse revokes the whole family; client coordinates refresh. | A carefully designed grace window or different durations. | Concurrent tabs can cause the losing retry to revoke the family and require sign-in again. | **Before auth API/client implementation**. |
-| File/count/size limits | 10 MiB PDF, 5 MiB image, 12 gallery images, 20 documents/certificates, 200 materials per product. | Capacity-tested different limits or object storage later. | These are configuration/product limits to validate against fixture and VPS capacity, not schema constants. | **Before upload/editor API and UI implementation**. |
+| File/count/size limits | **Locked and implemented** in the Assets round: 10 MiB PDF, 5 MiB image, 12 gallery images, 20 documents/certifications per product. Materials remain at the schema-permitted 1000 rather than the proposed 200, which is an unresolved narrowing. | Capacity-tested different limits or object storage later. | These are product limits applied in the API, not schema constants; they are enforced in the DTOs and the asset pipeline rather than by database constraints. | Locked — see section B5. Materials still open. |
 | Historical-version visibility | Back-office-only; public route exposes current version only. | Public version browsing. | Asset authorization and public DTO scope stay smaller; URLs do not select historical content. | **Before public passport/version-history UI implementation**. |
 | Minimum Users and Settings behavior | Admin list/create/role/disable users; company display name/logo settings; last-active-Admin protection. | Smaller read-only scope or richer account/settings flows. | No registration, password reset, social auth, membership, or billing is implied. | **Before Users/Settings API and UI implementation**. |
 | Redis client and limiter backing store | Defer selection until cache/rate-limit implementation demonstrates need. | Select an official JavaScript Redis client and adapter after a focused compatibility/security review. | Redis server pin alone creates no application dependency or persistence authority. | **Before Redis or multi-replica limiter implementation**. |

@@ -4,19 +4,33 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 ## Current status
 
-**Milestone 1 is merged into `main`.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified on `main`. Everything downstream of drafts is not.
+**Milestone 1 is merged into `main`.** The validated schema, the hardened authentication flow and Product draft CRUD are implemented and verified on `main`.
+
+**The Assets slice is implemented on `build/assets` and is not yet merged.** It awaits Cristian's acceptance. Publication and everything downstream of it is not implemented.
 
 Implemented:
-- **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys.
+- **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
 - **`apps/api`** — NestJS 12.0.4 family, Prisma through `@prisma/adapter-pg`.
   - Auth: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`; Argon2id; JWT access tokens carrying **no role claim**; strict refresh rotation; Origin enforcement on cookie mutations; Helmet and request IDs.
   - Catalog: `GET /categories`, `POST /products`, `GET /products` (bounded pagination, category/country/date filters, PostgreSQL full-text search), `GET /products/:id`, `PATCH /products/:id` with atomic `draftRevision` concurrency.
-- **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Materials, Sustainability and Certifications.
+  - Assets: `POST /assets` (one file per request, `multipart/form-data`) and `GET /assets/:id`. Content is identified from its bytes with `file-type` 22.1.1; images are decoded and re-encoded with `sharp` 0.35.4, which strips metadata and bounds decoded pixels. Bytes live in PostgreSQL `AssetContent.bytea`. Retrieval is private and scoped to the caller's company in the query itself.
+- **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, publication and republish, publish authorization, Passport/PassportVersion, public passport pages, binary asset uploads, ProductImage, ProductDocument, certification PDFs, company logo, QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenancy onboarding, Docker/Compose and deployment.
+Not implemented, and not to be assumed: product delete/withdraw, publication and republish, publish authorization, Passport/PassportVersion, PassportVersionAsset writes, public passport pages, public asset visibility or downloads, company logo, QR generation, PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, version review, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
 
-Verified on 2026-09-21 by re-running the full milestone gate on the accepted milestone commit now merged into `main`: `prisma validate` passes; `pnpm lint` reports no diagnostics across 55 files; both workspaces typecheck and build; the API's 29 integration tests in 2 suites pass against PostgreSQL 18.6; the 6 Playwright tests pass against the built stack; `pnpm db:seed` is idempotent; `pnpm audit` reports no known vulnerabilities.
+### Proven asset invariants — do not weaken
+
+- Declared MIME type, filename and extension are never authoritative. The stored type comes from the bytes, and the bytes are re-checked after normalization so the served `Content-Type` always matches what is stored.
+- `file-type` matches magic numbers only, so a PDF also has to carry a cross-reference pointer and an end-of-file marker. A file that is only `%PDF-` is rejected.
+- An accepted asset's bytes are immutable. There is no update or delete path; replacing a file creates a new `Asset`.
+- Uploads are validated entirely before the first write, so a rejected upload leaves no `Asset` behind.
+- Retrieval scopes by `companyId` inside the query, so another company's asset is indistinguishable from a missing one. A malformed id must not reach the database as a raw value.
+- `AssetContent.bytes` is only ever selected in the download path. No product or list response may carry bytes.
+- Product attachment validation runs inside the product transaction and **before** the revision is claimed, so an invalid or foreign asset rolls the whole save back without bumping `draftRevision`.
+- A product keeps at most one cover image and at most twelve gallery images; documents and certifications are capped at twenty each; an asset may only be attached once per product; an image asset can never become a document or certification PDF, and a PDF can never become a product image.
+
+Verified on 2026-09-23 on this branch: `pnpm check` passes (65 files linted with no diagnostics, both workspaces typecheck and build, 4 integration suites with 60 of 60 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities. An independent read-only review of the diff found three low-severity defects, all fixed with regression tests written first.
 
 ## The specs are authoritative
 
