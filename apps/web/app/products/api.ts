@@ -1,3 +1,5 @@
+import type { AssetUploadResponse } from './types.js'
+
 export type ApiErrorPayload = {
   statusCode?: number
   code?: string
@@ -67,4 +69,53 @@ export function describeApiError(error: unknown, fallback: string): string {
     return error.message
   }
   return error instanceof Error && error.message.length > 0 ? error.message : fallback
+}
+
+/** The authenticated fetch exposed by the auth context. */
+export type AuthenticatedRequest = (path: string, init?: RequestInit) => Promise<Response>
+
+/**
+ * Uploads one file and returns its asset metadata.
+ *
+ * Shared by the file picker and drag-and-drop so there is a single upload
+ * implementation. `Content-Type` is deliberately not set: the browser has to add the
+ * multipart boundary itself.
+ */
+export async function uploadAsset(
+  request: AuthenticatedRequest,
+  file: File,
+): Promise<AssetUploadResponse> {
+  const body = new FormData()
+  body.append('file', file)
+
+  const response = await request('/assets', { method: 'POST', body })
+  const payload = await readApiResponse<unknown>(response)
+
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    typeof (payload as { id?: unknown }).id !== 'string'
+  ) {
+    throw new ProductApiError(502, 'The API returned invalid asset data.')
+  }
+
+  return payload as AssetUploadResponse
+}
+
+/**
+ * Fetches asset bytes and wraps them in an object URL for rendering.
+ *
+ * The access token lives in memory and travels as a header, so an `<img src>` cannot
+ * point at the asset route directly. Callers own the returned URL and must revoke it.
+ */
+export async function fetchAssetObjectUrl(
+  request: AuthenticatedRequest,
+  assetId: string,
+): Promise<string> {
+  const response = await request(`/assets/${assetId}`)
+  if (!response.ok) {
+    throw new ProductApiError(response.status, 'That file could not be loaded.')
+  }
+
+  return URL.createObjectURL(await response.blob())
 }
