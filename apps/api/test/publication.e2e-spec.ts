@@ -625,7 +625,10 @@ describe('Publication completeness', () => {
     expect(collectPublicationGaps(draft)).toEqual([])
 
     // ... and the ordering rule is what rejects the reversed range.
-    const certification = draft.certifications[0]!
+    const certification = draft.certifications[0]
+    if (certification === undefined) {
+      throw new Error('the constructed fixture should carry one certification')
+    }
     const gaps = collectPublicationGaps({
       ...draft,
       certifications: [{ ...certification, issueDate: '2030-01-01', expirationDate: '2025-01-01' }],
