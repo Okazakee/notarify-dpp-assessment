@@ -378,3 +378,37 @@ A `prepare` script was written first to enable the hooks automatically on instal
 **Not validated / deferred.** Human source-code review remains deferred. No container or security scanning, no coverage thresholds, no branch protection, no deployment. No Asset work exists yet.
 
 **Result.** The tooling slice is integrated into `main`. Capability: `pnpm check`, local hooks and a green clean-environment CI layer are now part of the repository contract. The next milestone requires an explicit Cristian instruction, a fresh Gate 0 and Gate 1, and a new scoped branch from the then-current `main`.
+
+---
+
+## 2026-09-23 — Dev-worktree hygiene and the `NODE_ENV` build trap
+
+**Scope.** Repository hygiene on a branch from `main` after Milestone 1: stop `next dev` from dirtying the working tree, and record a build failure discovered while verifying that change. Explicitly excluded: every application, API, schema and frontend behaviour change; any change to the `check` script, `.env`, `.env.example`, CI or the hooks; and the three candidate fixes for the `NODE_ENV` interaction, which remain Cristian's decision. No next milestone was started.
+
+**AI participation.** Pi performed the investigation and the change on the `opencode-go/deepseek-v4.1-flash` route. No external model participated in this round.
+
+**Human review.** Decision/scope review: Cristian chose this option after being shown the alternatives and their trade-offs, and authorized the commit and the push. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built.
+
+**Decisions.** `apps/web/next-env.d.ts` is untracked and gitignored rather than committed: Next 16.3.5's bundled documentation states that its contents are an implementation detail which differs between dev and build, and instructs projects that track the file to remove it from Git. The Next 16 `agentRules` auto-generation of `apps/web/AGENTS.md` and `CLAUDE.md` is disabled rather than committed, because this repository deliberately keeps a single human-owned instruction file at the root and a framework-rewritten second one would be silently regenerated on every Next upgrade. The safety of untracking was established by experiment before it was applied, not assumed.
+
+**Work performed.** Added `agentRules: false` to `apps/web/next.config.ts`; added `apps/web/next-env.d.ts` to `.gitignore`; ran `git rm --cached apps/web/next-env.d.ts`, leaving the file on disk for the local toolchain; recorded the `NODE_ENV` interaction in `AGENTS.md`.
+
+**Findings / rejected approaches.** A hard `next build` failure — `TypeError: Cannot read properties of null (reading 'useContext')` while prerendering `/_global-error` — was hit while running `pnpm check`. It was first attributed to the change under test, then to a `next dev` process sharing the same `.next` directory. Both explanations were wrong. Two controlled builds isolated the config change as innocent: the build passes both with and without `agentRules`, and fails only when `NODE_ENV=development` is exported. The value came from the repository's own `.env`, which the API never reads, so exporting it is the natural local setup. `NODE_ENV=test`, the value CI sets, builds cleanly, so CI was never affected and the failure was never observed there. The error message names none of this, which is what made it misleading.
+
+Rejected: committing the generated `apps/web/AGENTS.md` and `CLAUDE.md` (Next's own suggested remedy for the untracked-file churn) — it would place a framework-managed instruction file inside a repository whose instruction surface is deliberately single-owner. Rejected: adding `next typegen` to the web typecheck script — a fresh-clone simulation proved `tsc --noEmit` passes without `next-env.d.ts`, so the extra step would be unearned.
+
+**Validation evidence.**
+
+| Check | Result |
+| --- | --- |
+| `pnpm check` (canonical contract, `NODE_ENV` unset) | **passes** — schema valid, 55 files linted with no diagnostics, both workspaces typecheck and build, 2 suites / 29 of 29 integration tests |
+| Web build, `NODE_ENV` unset | passes |
+| Web build, `NODE_ENV=test` | passes |
+| Web build, `NODE_ENV=development` | **fails**, reproduced deterministically after `rm -rf apps/web/.next` |
+| Fresh-clone typecheck without `next-env.d.ts` (temp tsconfig, `.next/types` excluded) | `tsc --noEmit` exit 0 |
+| `git status` after a fresh `next dev` run | only the intended changes; no `AGENTS.md`, `CLAUDE.md` or `next-env.d.ts` churn |
+| Web routes after the change (`/`, `/login`, `/dashboard`, `/products`) | 200 |
+
+**Not validated / deferred.** Human source-code review remains deferred until the complete project is built. The `NODE_ENV` interaction is recorded but **not fixed**: pinning `NODE_ENV` for the build step, removing it from `.env`, or documenting the local requirement are materially different choices and none was selected. `pnpm test:e2e` was not re-run in this round; the change touches dev tooling and configuration only, and the canonical contract plus a live dev-server check were used instead. No container or security scanning, no coverage thresholds, no branch protection, no deployment.
+
+**Result.** `next dev` no longer dirties the working tree, and the `NODE_ENV` build trap is recorded rather than left to be rediscovered. The branch awaits green CI on its own HEAD and Cristian's decision on both the merge and the unresolved `NODE_ENV` choice.
