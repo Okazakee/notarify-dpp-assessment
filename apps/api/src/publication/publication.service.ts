@@ -3,6 +3,8 @@ import { HttpStatus, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { isUUID } from 'class-validator'
 import QRCode from 'qrcode'
+import { assetKindForMime } from '../assets/asset-processing.js'
+import { AssetsService } from '../assets/assets.service.js'
 import { ApiException } from '../common/api-exception.js'
 import type { AppEnvironment } from '../config/configuration.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -12,9 +14,12 @@ import {
   buildSnapshot,
   collectPublicationGaps,
   collectRetainedAssets,
+  publicationAssetTypeMismatch,
+  publicationAssetUnavailable,
   publicationIncomplete,
   publicationRevisionConflict,
   SNAPSHOT_SCHEMA_VERSION,
+  SNAPSHOT_VERIFICATION_STATUS,
 } from './publication.policy.js'
 import type { PublicationResult } from './publication.types.js'
 
@@ -23,9 +28,12 @@ import type { PublicationResult } from './publication.types.js'
  *
  * Publication is the only place that turns mutable draft rows into an immutable
  * version. Everything it writes — the version, its retained asset references, the QR
- * artifact on first publication, the current-version pointer and the audit row — is
- * written in one transaction, so a passport is never observable in a half-published
- * state.
+ * artifact on first publication and the current-version pointer — is written in one
+ * transaction, so a passport is never observable in a half-published state.
+ *
+ * It deliberately writes **no** `AuditEvent`. The audit-log bonus is a separate milestone
+ * with its own event and action policy, so publication does not begin it with a single
+ * isolated event type.
  */
 
 /**
@@ -45,11 +53,51 @@ async function renderQrPng(targetUrl: string): Promise<Buffer> {
   })
 }
 
+/**
+ * Builds the publication response.
+ *
+ * Exposes stable publication metadata for future frontend consumers and deliberately
+ * carries no QR bytes, no snapshot JSON and no asset bytes. Replay returns the same
+ * Passport-level values, so a retry is indistinguishable from the original call apart
+ * from `replayed`.
+ */
+function toResult(
+  input: {
+    passportId: string
+    productId: string
+    publicUuid: string
+    versionId: string
+    versionNumber: number
+    sourceDraftRevision: number
+    firstPublishedAt: Date
+    publishedAt: Date
+    qrTargetUrl: string
+    replayed: boolean
+  },
+  publicAppOrigin: string,
+): PublicationResult {
+  return {
+    passportId: input.passportId,
+    productId: input.productId,
+    publicUuid: input.publicUuid,
+    versionId: input.versionId,
+    versionNumber: input.versionNumber,
+    sourceDraftRevision: input.sourceDraftRevision,
+    firstPublishedAt: input.firstPublishedAt.toISOString(),
+    publishedAt: input.publishedAt.toISOString(),
+    publicUrl: `${publicAppOrigin}/passport/${input.publicUuid}`,
+    qrTargetUrl: input.qrTargetUrl,
+    verificationStatus: SNAPSHOT_VERIFICATION_STATUS,
+    replayed: input.replayed,
+  }
+}
+
 @Injectable()
 export class PublicationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly products: ProductsService,
+    private readonly assets: AssetsService,
     private readonly config: ConfigService<AppEnvironment, true>,
   ) {}
 
@@ -58,7 +106,6 @@ export class PublicationService {
     actorId: string,
     productId: string,
     expectedDraftRevision: number,
-    requestId: string | undefined,
   ): Promise<PublicationResult> {
     if (!isUUID(productId)) {
       throw new ApiException(HttpStatus.NOT_FOUND, 'PRODUCT_NOT_FOUND', 'Product not found.')
@@ -105,9 +152,56 @@ export class PublicationService {
           throw publicationIncomplete(gaps)
         }
 
+        // Revalidate every asset the version will reference. Validation performed when
+        // an asset was attached to the draft proves nothing here: its state or its
+        // company can change afterwards, and publication is the public visibility
+        // boundary. This runs before any version is written, so a rejected publication
+        // leaves no Passport, no new version and no retained references behind.
+        const references: Array<{ assetId: string; expected: 'IMAGE' | 'PDF'; label: string }> = [
+          ...draft.images.map((image) => ({
+            assetId: image.assetId,
+            expected: 'IMAGE' as const,
+            label: 'image',
+          })),
+          ...draft.documents.map((document) => ({
+            assetId: document.assetId,
+            expected: 'PDF' as const,
+            label: 'document',
+          })),
+          ...draft.certifications.flatMap((certification) =>
+            certification.pdfAssetId === null
+              ? []
+              : [
+                  {
+                    assetId: certification.pdfAssetId,
+                    expected: 'PDF' as const,
+                    label: 'certification PDF',
+                  },
+                ],
+          ),
+        ]
+
+        if (references.length > 0) {
+          const resolved = await this.assets.findLinkableAssets(
+            companyId,
+            references.map((reference) => reference.assetId),
+            tx,
+          )
+
+          for (const reference of references) {
+            const asset = resolved.get(reference.assetId)
+            if (asset === undefined) {
+              throw publicationAssetUnavailable(reference.label)
+            }
+            if (assetKindForMime(asset.detectedMime) !== reference.expected) {
+              throw publicationAssetTypeMismatch(reference.label)
+            }
+          }
+        }
+
         const company = await tx.company.findUnique({
           where: { id: companyId },
-          select: { displayName: true, logoAssetId: true },
+          select: { displayName: true },
         })
         if (company === null) {
           throw new ApiException(
@@ -119,7 +213,12 @@ export class PublicationService {
 
         const existingPassport = await tx.passport.findUnique({
           where: { productId },
-          select: { id: true, publicUuid: true, qrTargetUrl: true },
+          select: {
+            id: true,
+            publicUuid: true,
+            qrTargetUrl: true,
+            firstPublishedAt: true,
+          },
         })
 
         // Idempotency: publishing a revision that already produced a version returns
@@ -137,16 +236,21 @@ export class PublicationService {
           })
 
           if (replayed !== null) {
-            return {
-              passportId: existingPassport.id,
-              publicUuid: existingPassport.publicUuid,
-              versionId: replayed.id,
-              versionNumber: replayed.versionNumber,
-              sourceDraftRevision: expectedDraftRevision,
-              publishedAt: replayed.publishedAt.toISOString(),
-              qrTargetUrl: existingPassport.qrTargetUrl,
-              replayed: true,
-            }
+            return toResult(
+              {
+                passportId: existingPassport.id,
+                productId,
+                publicUuid: existingPassport.publicUuid,
+                versionId: replayed.id,
+                versionNumber: replayed.versionNumber,
+                sourceDraftRevision: expectedDraftRevision,
+                firstPublishedAt: existingPassport.firstPublishedAt,
+                publishedAt: replayed.publishedAt,
+                qrTargetUrl: existingPassport.qrTargetUrl,
+                replayed: true,
+              },
+              publicAppOrigin,
+            )
           }
         }
 
@@ -155,16 +259,18 @@ export class PublicationService {
         let passportId: string
         let publicUuid: string
         let qrTargetUrl: string
+        let firstPublishedAt: Date
 
         if (existingPassport === null) {
           publicUuid = randomUUID()
           qrTargetUrl = `${publicAppOrigin}/q/${publicUuid}`
           const qrPngBytes = await renderQrPng(qrTargetUrl)
+          firstPublishedAt = new Date()
           const created = await tx.passport.create({
             data: {
               productId,
               publicUuid,
-              firstPublishedAt: new Date(),
+              firstPublishedAt,
               qrTargetUrl,
               qrPngBytes: new Uint8Array(qrPngBytes),
               qrGeneratedAt: new Date(),
@@ -176,6 +282,7 @@ export class PublicationService {
           passportId = existingPassport.id
           publicUuid = existingPassport.publicUuid
           qrTargetUrl = existingPassport.qrTargetUrl
+          firstPublishedAt = existingPassport.firstPublishedAt
         }
 
         const latest = await tx.passportVersion.findFirst({
@@ -192,14 +299,13 @@ export class PublicationService {
             snapshotSchemaVersion: SNAPSHOT_SCHEMA_VERSION,
             publicSnapshot: buildSnapshot(draft, {
               displayName: company.displayName,
-              logoAssetId: company.logoAssetId,
             }) as unknown as Prisma.InputJsonValue,
             publishedById: actorId,
           },
           select: { id: true, versionNumber: true, publishedAt: true },
         })
 
-        const retained = collectRetainedAssets(draft, company.logoAssetId)
+        const retained = collectRetainedAssets(draft)
         if (retained.length > 0) {
           await tx.passportVersionAsset.createMany({
             data: retained.map((asset) => ({
@@ -215,33 +321,24 @@ export class PublicationService {
           data: { currentVersionId: version.id },
         })
 
-        await tx.auditEvent.create({
-          data: {
-            actorId,
-            entityType: 'PassportVersion',
-            entityId: version.id,
-            action: 'PUBLICATION_PUBLISHED',
-            requestId: requestId ?? null,
-            safeMetadata: {
-              productId,
-              passportId,
-              versionNumber: version.versionNumber,
-              sourceDraftRevision: expectedDraftRevision,
-              retainedAssetCount: retained.length,
-            },
+        // No audit row is written here. The audit-log bonus is a separate milestone with
+        // its own event and action policy, so publication does not start it with one
+        // isolated event type.
+        return toResult(
+          {
+            passportId,
+            productId,
+            publicUuid,
+            versionId: version.id,
+            versionNumber: version.versionNumber,
+            sourceDraftRevision: expectedDraftRevision,
+            firstPublishedAt,
+            publishedAt: version.publishedAt,
+            qrTargetUrl,
+            replayed: false,
           },
-        })
-
-        return {
-          passportId,
-          publicUuid,
-          versionId: version.id,
-          versionNumber: version.versionNumber,
-          sourceDraftRevision: expectedDraftRevision,
-          publishedAt: version.publishedAt.toISOString(),
-          qrTargetUrl,
-          replayed: false,
-        }
+          publicAppOrigin,
+        )
       })
     } catch (error) {
       if (error instanceof ApiException) {

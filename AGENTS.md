@@ -16,7 +16,7 @@ Implemented:
   - Auth: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`; Argon2id; JWT access tokens carrying **no role claim**; strict refresh rotation; Origin enforcement on cookie mutations; Helmet and request IDs.
   - Catalog: `GET /categories`, `POST /products`, `GET /products` (bounded pagination, category/country/date filters, PostgreSQL full-text search), `GET /products/:id`, `PATCH /products/:id` with atomic `draftRevision` concurrency.
   - Assets: `POST /assets` (one file per request, `multipart/form-data`) and `GET /assets/:id`. Content is identified from its bytes with `file-type` 22.1.1; images are decoded and re-encoded with `sharp` 0.35.4, which strips metadata and bounds decoded pixels. Bytes live in PostgreSQL `AssetContent.bytea`. Retrieval is private and scoped to the caller's company in the query itself.
-  - Publication: `POST /products/:id/publish` creates the stable Passport identity, an immutable `PassportVersion`, its retained `PassportVersionAsset` references, the QR artifact and an audit row in one transaction. QR rendering uses `qrcode` 1.5.4.
+  - Publication: `POST /products/:id/publish` creates the stable Passport identity, an immutable `PassportVersion`, its retained `PassportVersionAsset` references and the QR artifact in one transaction. QR rendering uses `qrcode` 1.5.4. Publication writes **no** `AuditEvent`; the audit-log bonus is a separate milestone.
 - **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
@@ -39,12 +39,12 @@ Not implemented, and not to be assumed: product delete/withdraw, the public pass
 - Publishing is the only path that creates a version, and versions are immutable. A republish creates a new version; it never mutates an existing one.
 - The public UUID and its QR artifact are allocated on first publication and retained across republishes. A printed QR code must not stop working.
 - Publishing a revision that already produced a version returns that version instead of duplicating history, backed by the unique constraint on `(passportId, sourceDraftRevision)`.
-- The publish transaction locks the product row `FOR UPDATE`, verifies `expectedDraftRevision`, and writes the version, its retained asset references, the QR, the current-version pointer and the audit row together, so a passport is never observable half-published.
+- The publish transaction locks the product row `FOR UPDATE`, verifies `expectedDraftRevision`, revalidates every referenced asset, and writes the version, its retained asset references, the QR and the current-version pointer together, so a passport is never observable half-published.
 - `PassportVersionAsset` retains a relational reference to every asset a version exposes, so a later draft edit that unlinks an image cannot break a published version.
 - The QR target origin comes from validated `PUBLIC_APP_ORIGIN` configuration, never from a client-supplied `Host` header.
 - Publication prerequisites never block a draft save, and the company logo is not a prerequisite: the public passport's brand logo is satisfied by a bundled application asset.
 
-Verified on 2026-09-23 on this branch: `pnpm check` passes (72 files linted with no diagnostics, both workspaces typecheck and build, 5 integration suites with 71 of 71 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities.
+Verified on 2026-09-23 on this branch: `pnpm check` passes (72 files linted with no diagnostics, both workspaces typecheck and build, 5 integration suites with 89 of 89 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities.
 
 ## The specs are authoritative
 
@@ -122,7 +122,7 @@ Supported today. Runtime is Node 24.21.0 with pnpm 12.5.1 — the pinned version
 
 The API has no `dev` script: build it and run `node apps/api/dist/src/main.js`. The frontend has `pnpm --filter @notarify/web dev`.
 
-The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGIN`; see `.env.example`. Startup fails fast on missing or unsafe configuration.
+The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGIN` and `PUBLIC_APP_ORIGIN`; see `.env.example`. Startup fails fast on missing or unsafe configuration, including an origin that is not an absolute http(s) origin.
 
 `next build` runs with `NODE_ENV=production`, pinned in the `apps/web` build script. The repository's `.env` sets `NODE_ENV=development`, and an ambient `NODE_ENV=development` makes the build fail while prerendering `/_global-error` with `TypeError: Cannot read properties of null (reading 'useContext')`, which does not name the real cause. `e2e/playwright.config.ts` pins the same value for `next start` for the same reason.
 
@@ -130,7 +130,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts` and `apps/api/test/publication.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (5 suites, 71 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts` and `e2e/assets.spec.ts` via `pnpm test:e2e` (9 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts` and `apps/api/test/publication.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (5 suites, 89 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts` and `e2e/assets.spec.ts` via `pnpm test:e2e` (9 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.

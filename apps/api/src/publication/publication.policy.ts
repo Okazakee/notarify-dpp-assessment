@@ -15,11 +15,39 @@ import type { PassportSnapshot, PublishableDraft, RetainedAsset } from './public
 /** Bump when the shape of `PassportSnapshot` changes. */
 export const SNAPSHOT_SCHEMA_VERSION = 1
 
+/** The verification presentation written into every snapshot. */
+export const SNAPSHOT_VERIFICATION_STATUS = 'VERIFIED' as const
+
 export function publicationIncomplete(gaps: string[]): ApiException {
   return new ApiException(
     HttpStatus.BAD_REQUEST,
     'PUBLICATION_INCOMPLETE',
     `This product is not ready to publish. Missing or invalid: ${gaps.join('; ')}.`,
+  )
+}
+
+/**
+ * Rejects a referenced asset that is no longer publishable.
+ *
+ * Attaching an asset to a draft proves nothing at publication time: its state or its
+ * company can change afterwards, and publication is the public visibility boundary.
+ * The message is deliberately identical whether the asset is missing, belongs to
+ * another company, or is no longer accepted, so it cannot be used to probe for the
+ * existence of another company's assets.
+ */
+export function publicationAssetUnavailable(label: string): ApiException {
+  return new ApiException(
+    HttpStatus.BAD_REQUEST,
+    'PUBLICATION_ASSET_UNAVAILABLE',
+    `A ${label} attached to this product is not available for publication.`,
+  )
+}
+
+export function publicationAssetTypeMismatch(label: string): ApiException {
+  return new ApiException(
+    HttpStatus.BAD_REQUEST,
+    'PUBLICATION_ASSET_TYPE_INVALID',
+    `A ${label} attached to this product has an incompatible file type.`,
   )
 }
 
@@ -57,6 +85,30 @@ export function collectPublicationGaps(draft: PublishableDraft): string[] {
 
   if (draft.sustainability === null) {
     gaps.push('sustainability data')
+  } else {
+    // Every assessment sustainability field must carry a value at publication. A draft
+    // may hold a partial row; a published version may not.
+    const sustainabilityFields: Array<[string, number | boolean | null]> = [
+      ['carbon footprint', draft.sustainability.carbonKgCo2e],
+      ['water consumption', draft.sustainability.waterLitres],
+      ['recycled material percentage', draft.sustainability.recycledPercent],
+      ['repairability score', draft.sustainability.repairabilityScore],
+      ['recyclable flag', draft.sustainability.recyclable],
+    ]
+    for (const [label, value] of sustainabilityFields) {
+      if (value === null) {
+        gaps.push(`sustainability ${label}`)
+      }
+    }
+  }
+
+  // Date-only comparison. `productionDate` is a calendar date, so comparing ISO date
+  // strings avoids introducing a timezone-sensitive timestamp comparison.
+  if (draft.productionDate !== null) {
+    const today = new Date().toISOString().slice(0, 10)
+    if (draft.productionDate > today) {
+      gaps.push(`production date must not be in the future (currently ${draft.productionDate})`)
+    }
   }
 
   if (!draft.images.some((image) => image.role === 'COVER')) {
@@ -73,17 +125,34 @@ export function collectPublicationGaps(draft: PublishableDraft): string[] {
 
   for (const [index, certification] of draft.certifications.entries()) {
     const label = certification.name?.trim() || `#${index + 1}`
-    if (certification.name === null) {
+    // Empty and whitespace-only strings are as incomplete as `null`: the DTO accepts
+    // `''` and the draft-save path stores it unchanged, so a bare null check would let an
+    // unnamed certification publish.
+    if (certification.name === null || certification.name.trim().length === 0) {
       gaps.push(`certification ${label} name`)
     }
-    if (certification.issuingAuthority === null) {
+    if (
+      certification.issuingAuthority === null ||
+      certification.issuingAuthority.trim().length === 0
+    ) {
       gaps.push(`certification ${label} issuing authority`)
     }
     if (certification.issueDate === null) {
       gaps.push(`certification ${label} issue date`)
     }
+    if (certification.expirationDate === null) {
+      gaps.push(`certification ${label} expiration date`)
+    }
     if (certification.pdfAssetId === null) {
       gaps.push(`certification ${label} PDF`)
+    }
+    // Date-only ordering check, only meaningful once both dates are present.
+    if (
+      certification.issueDate !== null &&
+      certification.expirationDate !== null &&
+      certification.expirationDate < certification.issueDate
+    ) {
+      gaps.push(`certification ${label} expiration date must not be before its issue date`)
     }
   }
 
@@ -100,7 +169,7 @@ export function collectPublicationGaps(draft: PublishableDraft): string[] {
  */
 export function buildSnapshot(
   draft: PublishableDraft,
-  brand: { displayName: string; logoAssetId: string | null },
+  brand: { displayName: string },
 ): PassportSnapshot {
   return {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
@@ -117,10 +186,9 @@ export function buildSnapshot(
     },
     brand: {
       displayName: brand.displayName,
-      logoAssetId: brand.logoAssetId,
     },
     verification: {
-      status: 'VERIFIED',
+      status: SNAPSHOT_VERIFICATION_STATUS,
       basis: 'PROTOTYPE_APPLICATION_LEVEL',
     },
     materials: draft.materials,
@@ -142,16 +210,13 @@ export function buildSnapshot(
  *
  * `PassportVersionAsset` is what stops a snapshot from silently losing its files: a
  * later draft edit that unlinks an image must not break an already-published version.
+ *
+ * Company-logo participation is deliberately absent from Stage 4.1. The public page's
+ * brand logo is satisfied by a bundled application asset, `Company.logoAssetId` stays
+ * unused infrastructure, and no `COMPANY_LOGO` reference is written here.
  */
-export function collectRetainedAssets(
-  draft: PublishableDraft,
-  companyLogoAssetId: string | null,
-): RetainedAsset[] {
+export function collectRetainedAssets(draft: PublishableDraft): RetainedAsset[] {
   const retained: RetainedAsset[] = []
-
-  if (companyLogoAssetId !== null) {
-    retained.push({ assetId: companyLogoAssetId, role: 'COMPANY_LOGO' })
-  }
 
   for (const image of draft.images) {
     retained.push({

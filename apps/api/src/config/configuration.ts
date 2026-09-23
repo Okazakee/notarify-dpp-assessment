@@ -29,6 +29,33 @@ function requiredString(environment: Record<string, unknown>, name: string): str
   return value.trim()
 }
 
+/**
+ * Requires an absolute http(s) origin.
+ *
+ * Trailing slashes are stripped before validation, so a value such as `///` cannot
+ * silently reduce to an empty string. Without this the production guard would pass and
+ * published QR codes would encode a relative target that no phone can resolve.
+ */
+function absoluteOrigin(value: string, name: string): string {
+  const withoutTrailingSlash = value.replace(/\/+$/, '')
+
+  let parsed: URL
+  try {
+    parsed = new URL(withoutTrailingSlash)
+  } catch {
+    throw new Error(`${name} must be an absolute http(s) origin`)
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`${name} must use http or https`)
+  }
+  if (parsed.origin !== withoutTrailingSlash) {
+    throw new Error(`${name} must be an origin only, without a path, query or fragment`)
+  }
+
+  return withoutTrailingSlash
+}
+
 export function validateEnvironment(environment: Record<string, unknown>): AppEnvironment {
   const databaseUrl = requiredString(environment, 'DATABASE_URL')
   const jwtSecret = requiredString(environment, 'JWT_SECRET')
@@ -74,7 +101,7 @@ export function validateEnvironment(environment: Record<string, unknown>): AppEn
     typeof environment.PUBLIC_APP_ORIGIN === 'string' &&
     environment.PUBLIC_APP_ORIGIN.trim().length > 0
   ) {
-    publicAppOrigin = environment.PUBLIC_APP_ORIGIN.trim()
+    publicAppOrigin = absoluteOrigin(environment.PUBLIC_APP_ORIGIN.trim(), 'PUBLIC_APP_ORIGIN')
   } else if (nodeEnvironment === 'production') {
     throw new Error('PUBLIC_APP_ORIGIN is required in production')
   } else {
@@ -87,7 +114,7 @@ export function validateEnvironment(environment: Record<string, unknown>): AppEn
     DATABASE_URL: databaseUrl,
     JWT_SECRET: jwtSecret,
     NODE_ENV: nodeEnvironment,
-    PUBLIC_APP_ORIGIN: publicAppOrigin.replace(/\/+$/, ''),
+    PUBLIC_APP_ORIGIN: publicAppOrigin,
     ...(typeof environment.PORT === 'string' ? { PORT: environment.PORT } : {}),
   }
 }

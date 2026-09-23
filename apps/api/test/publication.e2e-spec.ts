@@ -7,8 +7,11 @@ import sharp from 'sharp'
 import request from 'supertest'
 import { AppModule } from '../src/app.module.js'
 import { configureApplication } from '../src/application.js'
-import { UserRole } from '../src/generated/prisma/enums.js'
+import { validateEnvironment } from '../src/config/configuration.js'
+import { AssetState, UserRole } from '../src/generated/prisma/enums.js'
 import { PrismaService } from '../src/prisma/prisma.service.js'
+import { collectPublicationGaps } from '../src/publication/publication.policy.js'
+import type { PublishableDraft } from '../src/publication/publication.types.js'
 import { pdfFixture, pngFixture } from './asset-fixtures.js'
 
 type Fixture = {
@@ -20,17 +23,24 @@ type Fixture = {
 
 type PublicationResult = {
   passportId: string
+  productId: string
   publicUuid: string
   versionId: string
   versionNumber: number
   sourceDraftRevision: number
+  firstPublishedAt: string
   publishedAt: string
+  publicUrl: string
   qrTargetUrl: string
+  verificationStatus: string
   replayed: boolean
 }
 
 let app: INestApplication
 let prisma: PrismaService
+
+/** Deliberately not the development default; set by `test/setup-env.cjs`. */
+const PUBLIC_APP_ORIGIN = 'https://public.example.test'
 const fixtures: Fixture[] = []
 const categoryIds: string[] = []
 const productIds: string[] = []
@@ -85,14 +95,28 @@ async function uploadAsset(token: string, bytes: Buffer, filename: string): Prom
   return response.body.id as string
 }
 
-/** A draft that satisfies every publication prerequisite. */
+/**
+ * A draft that satisfies every publication prerequisite.
+ *
+ * Returns the uploaded asset ids so a test can change an asset's state after it was
+ * attached and prove that publication revalidates it rather than trusting the draft.
+ */
 async function publishableDraft(
   token: string,
   categoryId: string,
   overrides: Record<string, unknown> = {},
-): Promise<{ id: string; draftRevision: number }> {
+): Promise<{
+  id: string
+  draftRevision: number
+  coverAssetId: string
+  galleryAssetId: string
+  documentAssetId: string
+  certificationAssetId: string
+}> {
   const cover = await uploadAsset(token, await pngFixture(), 'cover.png')
-  const pdf = await uploadAsset(token, pdfFixture(), 'document.pdf')
+  const gallery = await uploadAsset(token, await pngFixture(48, 32), 'gallery.png')
+  const documentPdf = await uploadAsset(token, pdfFixture(), 'document.pdf')
+  const certificationPdf = await uploadAsset(token, pdfFixture(), 'certificate.pdf')
 
   const response = await request(app.getHttpServer())
     .post('/products')
@@ -105,19 +129,29 @@ async function publishableDraft(
       description: 'Ready to publish',
       productionDate: '2026-01-15',
       originCountry: 'IT',
-      sustainability: { carbonKgCo2e: 12.5, recyclable: true },
+      sustainability: {
+        carbonKgCo2e: 12.5,
+        waterLitres: 340,
+        recycledPercent: 45,
+        repairabilityScore: 7.5,
+        recyclable: true,
+      },
       materials: [
         { name: 'Aluminium', percentage: 60, position: 0 },
         { name: 'Steel', percentage: 40, position: 1 },
       ],
-      images: [{ assetId: cover, role: 'COVER', altText: 'front' }],
-      documents: [{ assetId: pdf, kind: 'MANUAL', title: 'Manual' }],
+      images: [
+        { assetId: cover, role: 'COVER', altText: 'front' },
+        { assetId: gallery, role: 'GALLERY', altText: 'side' },
+      ],
+      documents: [{ assetId: documentPdf, kind: 'MANUAL', title: 'Manual' }],
       certifications: [
         {
           name: 'ISO 9001',
           issuingAuthority: 'TUV',
           issueDate: '2025-01-01',
-          pdfAssetId: pdf,
+          expirationDate: '2030-01-01',
+          pdfAssetId: certificationPdf,
         },
       ],
       ...overrides,
@@ -125,7 +159,14 @@ async function publishableDraft(
 
   expect(response.status).toBe(201)
   productIds.push(response.body.id as string)
-  return { id: response.body.id as string, draftRevision: response.body.draftRevision as number }
+  return {
+    id: response.body.id as string,
+    draftRevision: response.body.draftRevision as number,
+    coverAssetId: cover,
+    galleryAssetId: gallery,
+    documentAssetId: documentPdf,
+    certificationAssetId: certificationPdf,
+  }
 }
 
 async function publish(
@@ -170,9 +211,6 @@ afterAll(async () => {
       await prisma.passportVersion.deleteMany({ where: { passportId: { in: passportIds } } })
       await prisma.passport.deleteMany({ where: { id: { in: passportIds } } })
     }
-    await prisma.auditEvent.deleteMany({
-      where: { actorId: { in: fixtures.map((f) => f.userId) } },
-    })
     if (productIds.length > 0) {
       await prisma.productImage.deleteMany({ where: { productId: { in: productIds } } })
       await prisma.productDocument.deleteMany({ where: { productId: { in: productIds } } })
@@ -280,7 +318,15 @@ describe('Publication core', () => {
     const published = first.body as PublicationResult
     expect(published.versionNumber).toBe(1)
     expect(published.replayed).toBe(false)
-    expect(published.qrTargetUrl).toContain(`/q/${published.publicUuid}`)
+    expect(published.productId).toBe(draft.id)
+    expect(published.publicUrl).toBe(`${PUBLIC_APP_ORIGIN}/passport/${published.publicUuid}`)
+    expect(published.qrTargetUrl).toBe(`${PUBLIC_APP_ORIGIN}/q/${published.publicUuid}`)
+    expect(published.verificationStatus).toBe('VERIFIED')
+    expect(Number.isNaN(Date.parse(published.firstPublishedAt))).toBe(false)
+    expect(Number.isNaN(Date.parse(published.publishedAt))).toBe(false)
+    // The response carries metadata only: never QR bytes or the snapshot.
+    expect(JSON.stringify(published)).not.toContain('qrPngBytes')
+    expect(JSON.stringify(published)).not.toContain('publicSnapshot')
 
     const passport = await prisma.passport.findUniqueOrThrow({
       where: { productId: draft.id },
@@ -304,6 +350,26 @@ describe('Publication core', () => {
     const roles = retained.map((row) => row.role).sort()
     expect(roles).toContain('COVER_IMAGE')
     expect(roles).toContain('PRODUCT_DOCUMENT')
+    // Company-logo participation is not part of Stage 4.1.
+    expect(roles).not.toContain('COMPANY_LOGO')
+
+    // Every referenced asset is retained, with its role, and nothing extra.
+    const retainedSet = (
+      await prisma.passportVersionAsset.findMany({
+        where: { versionId: published.versionId },
+        select: { assetId: true, role: true },
+      })
+    )
+      .map((row) => `${row.role}:${row.assetId}`)
+      .sort()
+    expect(retainedSet).toEqual(
+      [
+        `COVER_IMAGE:${draft.coverAssetId}`,
+        `GALLERY_IMAGE:${draft.galleryAssetId}`,
+        `PRODUCT_DOCUMENT:${draft.documentAssetId}`,
+        `CERTIFICATION_PDF:${draft.certificationAssetId}`,
+      ].sort(),
+    )
 
     // The snapshot carries ids and content, never bytes or origin-dependent URLs.
     const version = await prisma.passportVersion.findUniqueOrThrow({
@@ -316,12 +382,21 @@ describe('Publication core', () => {
     expect(snapshot).not.toContain('bytes')
     expect(snapshot).not.toContain('base64')
     expect(snapshot).toContain('PROTOTYPE_APPLICATION_LEVEL')
+    // The brand block carries the display name only in Stage 4.1.
+    expect(snapshot).not.toContain('logoAssetId')
 
-    // A publication writes its audit row in the same transaction.
-    const audit = await prisma.auditEvent.findFirst({
-      where: { entityId: published.versionId, action: 'PUBLICATION_PUBLISHED' },
-    })
-    expect(audit).not.toBeNull()
+    // Publication does not start the audit-log bonus: no audit row is written for the
+    // actor or for any entity this publication touched.
+    expect(
+      await prisma.auditEvent.count({
+        where: {
+          OR: [
+            { actorId: fixture.userId },
+            { entityId: { in: [published.versionId, published.passportId, draft.id] } },
+          ],
+        },
+      }),
+    ).toBe(0)
   })
 
   it('returns the existing version when the same revision is published again', async () => {
@@ -338,6 +413,9 @@ describe('Publication core', () => {
     expect(replayBody.replayed).toBe(true)
     expect(replayBody.versionId).toBe(firstBody.versionId)
     expect(replayBody.publicUuid).toBe(firstBody.publicUuid)
+    // Replay is indistinguishable from the original call apart from the `replayed` flag,
+    // so no Passport-level field can silently disappear from one branch.
+    expect({ ...replayBody, replayed: false }).toEqual(firstBody)
 
     // Exactly one version exists, so a retry cannot duplicate history.
     expect(
@@ -439,5 +517,459 @@ describe('Publication core', () => {
     const badRevision = await publish(token, draft.id, -1)
     expect(badRevision.status).toBe(400)
     expect(badRevision.body.code).toBe('VALIDATION_ERROR')
+  })
+})
+
+describe('Publication completeness', () => {
+  it('requires every sustainability field, not merely a sustainability row', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const categoryId = await createCategory()
+
+    const full = {
+      carbonKgCo2e: 12.5,
+      waterLitres: 340,
+      recycledPercent: 45,
+      repairabilityScore: 7.5,
+      recyclable: true,
+    }
+
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['carbon footprint', { ...full, carbonKgCo2e: null }],
+      ['water consumption', { ...full, waterLitres: null }],
+      ['recycled material percentage', { ...full, recycledPercent: null }],
+      ['repairability score', { ...full, repairabilityScore: null }],
+      ['recyclable flag', { ...full, recyclable: null }],
+    ]
+
+    for (const [label, sustainability] of cases) {
+      const draft = await publishableDraft(token, categoryId, { sustainability })
+      const attempt = await publish(token, draft.id, draft.draftRevision)
+      expect(attempt.status).toBe(400)
+      expect(attempt.body.code).toBe('PUBLICATION_INCOMPLETE')
+      expect(attempt.body.message).toContain(label)
+      // A rejected publication leaves nothing behind.
+      expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+    }
+  }, 120_000)
+
+  it('requires every certification field, including the expiration date', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const categoryId = await createCategory()
+
+    const base = {
+      name: 'ISO 9001',
+      issuingAuthority: 'TUV',
+      issueDate: '2025-01-01',
+      expirationDate: '2030-01-01',
+    }
+
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['name', { ...base, name: null }],
+      ['issuing authority', { ...base, issuingAuthority: null }],
+      ['issue date', { ...base, issueDate: null }],
+      ['expiration date', { ...base, expirationDate: null }],
+      ['PDF', { ...base }],
+    ]
+
+    for (const [label, certification] of cases) {
+      const draft = await publishableDraft(token, categoryId, {
+        certifications: [certification],
+      })
+      const attempt = await publish(token, draft.id, draft.draftRevision)
+      expect(attempt.status).toBe(400)
+      expect(attempt.body.code).toBe('PUBLICATION_INCOMPLETE')
+      expect(attempt.body.message).toContain(label)
+      expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+    }
+  }, 120_000)
+
+  it('reports a reversed certification date range as a publication gap', () => {
+    // This state is unreachable through any write path: the database CHECK constraint
+    // `Certification_expiration_not_before_issue_ck` refuses it and draft saves refuse it
+    // first. The publication rule is therefore defence in depth, so it is proven directly
+    // against the policy rather than by fabricating an impossible row.
+    const draft: PublishableDraft = {
+      id: randomUUID(),
+      name: 'Product',
+      sku: 'SKU',
+      serialNumber: 'SN',
+      categoryId: randomUUID(),
+      categoryName: 'Category',
+      description: 'Description',
+      productionDate: '2026-01-15',
+      originCountry: 'IT',
+      materials: [],
+      sustainability: {
+        carbonKgCo2e: 1,
+        waterLitres: 2,
+        recycledPercent: 3,
+        repairabilityScore: 4,
+        recyclable: true,
+      },
+      certifications: [
+        {
+          name: 'ISO 9001',
+          issuingAuthority: 'TUV',
+          issueDate: '2025-01-01',
+          expirationDate: '2030-01-01',
+          pdfAssetId: randomUUID(),
+        },
+      ],
+      images: [{ assetId: randomUUID(), role: 'COVER', position: 0, altText: null }],
+      documents: [],
+    }
+
+    // The constructed draft is genuinely publishable ...
+    expect(collectPublicationGaps(draft)).toEqual([])
+
+    // ... and the ordering rule is what rejects the reversed range.
+    const certification = draft.certifications[0]!
+    const gaps = collectPublicationGaps({
+      ...draft,
+      certifications: [{ ...certification, issueDate: '2030-01-01', expirationDate: '2025-01-01' }],
+    })
+    expect(gaps.join(' | ')).toMatch(/expiration date must not be before its issue date/)
+  })
+
+  it('keeps zero certifications publishable', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory(), { certifications: [] })
+
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+    expect(attempt.status).toBe(200)
+    expect((attempt.body as PublicationResult).versionNumber).toBe(1)
+  })
+
+  it('rejects a production date in the future using date-only semantics', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+
+    // A clearly future calendar date, so the test does not depend on tomorrow.
+    const draft = await publishableDraft(token, await createCategory(), {
+      productionDate: '2099-12-31',
+    })
+
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_INCOMPLETE')
+    expect(attempt.body.message).toMatch(/production date must not be in the future/)
+    expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+  })
+})
+
+describe('Publication asset revalidation', () => {
+  /** Flips an attached asset out of the accepted state after it was attached. */
+  async function quarantine(assetId: string): Promise<void> {
+    await prisma.asset.update({
+      where: { id: assetId },
+      data: { state: AssetState.QUARANTINED },
+    })
+  }
+
+  it('rejects a cover image that is no longer accepted', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    await quarantine(draft.coverAssetId)
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_UNAVAILABLE')
+    expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+  })
+
+  it('rejects a gallery image that is no longer accepted', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    await quarantine(draft.galleryAssetId)
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_UNAVAILABLE')
+  })
+
+  it('rejects a document that is no longer accepted', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    await quarantine(draft.documentAssetId)
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_UNAVAILABLE')
+  })
+
+  it('rejects a certification PDF that is no longer accepted', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    await quarantine(draft.certificationAssetId)
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_UNAVAILABLE')
+  })
+
+  it('leaves the published version untouched when a republish is rejected', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    const first = await publish(token, draft.id, draft.draftRevision)
+    expect(first.status).toBe(200)
+    const firstBody = first.body as PublicationResult
+
+    // Move the draft forward and take the cover out of the accepted state.
+    const edited = await request(app.getHttpServer())
+      .patch(`/products/${draft.id}`)
+      .set(auth(token))
+      .send({ expectedDraftRevision: draft.draftRevision, description: 'Edited' })
+    expect(edited.status).toBe(200)
+    await quarantine(draft.coverAssetId)
+
+    const attempt = await publish(token, draft.id, edited.body.draftRevision)
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_UNAVAILABLE')
+
+    // No new version, and the current pointer still names version 1.
+    expect(
+      await prisma.passportVersion.count({ where: { passportId: firstBody.passportId } }),
+    ).toBe(1)
+    const passport = await prisma.passport.findUniqueOrThrow({
+      where: { id: firstBody.passportId },
+      select: { currentVersionId: true },
+    })
+    expect(passport.currentVersionId).toBe(firstBody.versionId)
+    expect(
+      await prisma.passportVersionAsset.count({ where: { versionId: firstBody.versionId } }),
+    ).toBeGreaterThan(0)
+  })
+
+  it('rejects an asset of the wrong family at publication', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    // The draft API refuses to attach a PDF as an image, so the row is written
+    // directly to prove publication validates the family itself.
+    await prisma.productImage.create({
+      data: {
+        productId: draft.id,
+        assetId: draft.documentAssetId,
+        role: 'GALLERY',
+        position: 9,
+        altText: null,
+      },
+    })
+
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_TYPE_INVALID')
+    expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+  })
+
+  it('rejects a cross-company asset reference without disclosing its existence', async () => {
+    const owner = await createFixture()
+    const ownerToken = await login(owner)
+    const draft = await publishableDraft(ownerToken, await createCategory())
+
+    const stranger = await createFixture()
+    const strangerToken = await login(stranger)
+    const foreignAsset = await uploadAsset(strangerToken, await pngFixture(), 'foreign.png')
+
+    // Normal draft APIs correctly prevent this, so the relation is written directly to
+    // prove publication refuses it too.
+    await prisma.productImage.create({
+      data: {
+        productId: draft.id,
+        assetId: foreignAsset,
+        role: 'GALLERY',
+        position: 8,
+        altText: null,
+      },
+    })
+
+    const attempt = await publish(ownerToken, draft.id, draft.draftRevision)
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_ASSET_UNAVAILABLE')
+    // The message must not reveal that the asset exists elsewhere.
+    expect(attempt.body.message).not.toContain('foreign.png')
+    expect(JSON.stringify(attempt.body)).not.toMatch(/company|owner|other/i)
+  })
+})
+
+describe('Publication concurrency under an explicit row lock', () => {
+  it('writes nothing while the product row lock is held, then publishes once', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    let releaseHolder!: () => void
+    const held = new Promise<void>((resolve) => {
+      releaseHolder = resolve
+    })
+
+    // Hold the product row on a separate connection, so the publish below has to wait.
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "Product" WHERE "id" = ${draft.id}::uuid FOR UPDATE`
+        await held
+      },
+      { timeout: 20_000 },
+    )
+
+    // Let the holder actually acquire the lock.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    const pending = publish(token, draft.id, draft.draftRevision)
+
+    // While the lock is held, publication must not have written anything. If the
+    // `FOR UPDATE` were removed this window would contain a finished publication, so the
+    // assertion fails deterministically rather than depending on request interleaving.
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+
+    releaseHolder()
+    await holder
+
+    const result = await pending
+    expect(result.status).toBe(200)
+    const body = result.body as PublicationResult
+    expect(await prisma.passportVersion.count({ where: { passportId: body.passportId } })).toBe(1)
+  }, 30_000)
+})
+
+describe('Retained asset integrity', () => {
+  it('retains one row per asset when one PDF is both a document and a certification PDF', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const sharedPdf = await uploadAsset(token, pdfFixture(), 'shared.pdf')
+
+    const draft = await publishableDraft(token, await createCategory(), {
+      documents: [{ assetId: sharedPdf, kind: 'MANUAL', title: 'Manual' }],
+      certifications: [
+        {
+          name: 'ISO 9001',
+          issuingAuthority: 'TUV',
+          issueDate: '2025-01-01',
+          expirationDate: '2030-01-01',
+          pdfAssetId: sharedPdf,
+        },
+      ],
+    })
+
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+    expect(attempt.status).toBe(200)
+    const body = attempt.body as PublicationResult
+
+    // `PassportVersionAsset` is keyed (versionId, assetId), so one asset yields one row.
+    const rows = await prisma.passportVersionAsset.findMany({
+      where: { versionId: body.versionId },
+      select: { assetId: true },
+    })
+    expect(rows.filter((row) => row.assetId === sharedPdf)).toHaveLength(1)
+  })
+
+  it('keeps version 1 retained references after an image is unlinked in a republish', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+
+    const first = await publish(token, draft.id, draft.draftRevision)
+    expect(first.status).toBe(200)
+    const firstBody = first.body as PublicationResult
+
+    const before = await prisma.passportVersionAsset.findMany({
+      where: { versionId: firstBody.versionId },
+      select: { assetId: true, role: true },
+    })
+
+    // Unlink the gallery image and republish.
+    const edited = await request(app.getHttpServer())
+      .patch(`/products/${draft.id}`)
+      .set(auth(token))
+      .send({
+        expectedDraftRevision: draft.draftRevision,
+        images: [{ assetId: draft.coverAssetId, role: 'COVER', altText: 'front' }],
+      })
+    expect(edited.status).toBe(200)
+    const second = await publish(token, draft.id, edited.body.draftRevision)
+    expect(second.status).toBe(200)
+
+    // Version 1 still retains the gallery image it exposed.
+    const after = await prisma.passportVersionAsset.findMany({
+      where: { versionId: firstBody.versionId },
+      select: { assetId: true, role: true },
+    })
+    expect(after).toEqual(before)
+    expect(after.some((row) => row.assetId === draft.galleryAssetId)).toBe(true)
+  })
+})
+
+describe('Publication completeness edge cases', () => {
+  it('rejects a certification whose name or authority is blank rather than null', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const pdf = await uploadAsset(token, pdfFixture(), 'blank.pdf')
+
+    // The DTO accepts empty strings and the save path stores them unchanged, so a bare
+    // null check would let an unnamed certification publish.
+    const draft = await publishableDraft(token, await createCategory(), {
+      certifications: [
+        {
+          name: '',
+          issuingAuthority: '   ',
+          issueDate: '2025-01-01',
+          expirationDate: '2030-01-01',
+          pdfAssetId: pdf,
+        },
+      ],
+    })
+
+    const attempt = await publish(token, draft.id, draft.draftRevision)
+    expect(attempt.status).toBe(400)
+    expect(attempt.body.code).toBe('PUBLICATION_INCOMPLETE')
+    expect(attempt.body.message).toContain('name')
+    expect(attempt.body.message).toContain('issuing authority')
+    expect(await prisma.passport.count({ where: { productId: draft.id } })).toBe(0)
+  })
+})
+
+describe('PUBLIC_APP_ORIGIN validation', () => {
+  const base = {
+    DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
+    JWT_SECRET: 'test-secret-value',
+    NODE_ENV: 'development',
+  }
+
+  it('rejects origins that are empty, relative, not http(s), or carry a path', () => {
+    // `///` previously reduced to an empty string after slash-stripping, which would have
+    // published QR codes encoding an unscannable relative target.
+    for (const bad of [
+      '///',
+      'https://',
+      'not-a-url',
+      'ftp://example.test',
+      'https://example.test/path',
+    ]) {
+      expect(() => validateEnvironment({ ...base, PUBLIC_APP_ORIGIN: bad })).toThrow(
+        /PUBLIC_APP_ORIGIN/,
+      )
+    }
+  })
+
+  it('accepts an absolute origin and strips a trailing slash', () => {
+    expect(
+      validateEnvironment({ ...base, PUBLIC_APP_ORIGIN: 'https://ok.example.test/' })
+        .PUBLIC_APP_ORIGIN,
+    ).toBe('https://ok.example.test')
   })
 })

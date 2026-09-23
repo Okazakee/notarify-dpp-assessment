@@ -79,7 +79,6 @@ export type PassportSnapshot = {
   }
   brand: {
     displayName: string
-    logoAssetId: string | null
   }
   verification: SnapshotVerification
   materials: PublishableDraft['materials']
@@ -95,20 +94,33 @@ export type PassportSnapshot = {
   documents: PublishableDraft['documents']
 }
 
-/** One asset the published version retains a relational reference to. */
+/**
+ * One asset the published version retains a relational reference to.
+ *
+ * `COMPANY_LOGO` is deliberately absent from Stage 4.1: the public page's brand logo is
+ * satisfied by a bundled application asset, so `Company.logoAssetId` stays unused and
+ * no company-logo reference is written during publication.
+ */
 export type RetainedAsset = {
   assetId: string
-  role: 'COMPANY_LOGO' | 'COVER_IMAGE' | 'GALLERY_IMAGE' | 'PRODUCT_DOCUMENT' | 'CERTIFICATION_PDF'
+  role: 'COVER_IMAGE' | 'GALLERY_IMAGE' | 'PRODUCT_DOCUMENT' | 'CERTIFICATION_PDF'
 }
 
 export type PublicationResult = {
   passportId: string
+  productId: string
   publicUuid: string
   versionId: string
   versionNumber: number
   sourceDraftRevision: number
+  firstPublishedAt: string
   publishedAt: string
+  /** Canonical public passport URL, derived from the configured public origin. */
+  publicUrl: string
+  /** QR redirect target. Same origin and identity, different path. */
   qrTargetUrl: string
+  /** Prototype/application-level presentation semantics. Not a review outcome. */
+  verificationStatus: SnapshotVerification['status']
   /** True when this call returned a version that already existed for that revision. */
   replayed: boolean
 }

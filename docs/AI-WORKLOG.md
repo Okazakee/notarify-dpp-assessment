@@ -521,3 +521,47 @@ On the implementation, the first smoke run appeared to reject a complete draft; 
 **Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has manually exercised the publication flow or the editor. No independent review of the Stage 4.1 diff has been run yet; the milestone's Gate 3 review is still owed. The public surface does not exist yet, so the QR target URL resolves to nothing until Stage 4.2, and the QR has not been scanned by a real phone or decoded by an independent decoder. There is no public visibility rule, no historical-version browsing, no PDF, and no analytics. `PassportReview` remains unused infrastructure. Everything the Assets round deferred is still deferred.
 
 **Result.** The repository's planning surface now describes one canonical roadmap, and Stage 4.1 is implemented: an authorized editor or admin can publish a complete draft into an immutable, idempotently-addressable version with a stable public identity and QR artifact, retaining its asset references, and can republish after further edits without disturbing published history. The branch awaits Cristian's decision; it has not been merged, and Stages 4.2–4.6 and 5–7 have not been started.
+
+---
+
+## 2026-09-23 — Stage 4.1 review corrections
+
+**Scope.** A focused correction round on `build/publication`, driven by an external independent review of the Stage 4.1 contract and by the milestone's own Gate 3 review. No new milestone, no new feature, and no change to the publication architecture: the `FOR UPDATE` serialization, `expectedDraftRevision` precondition, stable Passport UUID, single QR allocation, same-revision replay, `(passportId, sourceDraftRevision)` idempotency, immutable snapshots, current-version pointer and retained asset references are all preserved unchanged.
+
+**AI participation.** Pi performed the corrections, the regression tests and the validation on the `opencode-go/deepseek-v4.1-flash` route. One read-only subagent was used, on that same route: `review`, for the milestone's required independent Gate 3 review of the entire Stage 4.1 diff from `main`. No external model participated in this round.
+
+**Human review.** Decision/scope review: Cristian supplied the review findings, the required behaviours and the boundaries of this round, and required the independent Gate 3 review that had been owed. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built.
+
+**Decisions.** No new architecture decision. The publication completeness rule was tightened to match the approved contract: sustainability must be present **and** carry all five assessment fields; each certification must carry all five fields including its expiration date, with a non-empty name and issuing authority; the production date must not be in the future, compared as date-only strings rather than timestamps. Every referenced asset is now revalidated inside the publish transaction and before version creation. Company-logo participation and the publication `AuditEvent` were removed from Stage 4.1, and the response contract was completed. All of this is recorded in section B7 of `docs/IMPLEMENTATION-DECISIONS.md`.
+
+**Work performed.** Added asset revalidation through `AssetsService.findLinkableAssets`; tightened the completeness rules; removed `logoAssetId` from the snapshot and `COMPANY_LOGO` from retained assets; removed the publication audit write and its assertion; completed the publication response; validated `PUBLIC_APP_ORIGIN` as an absolute http(s) origin; rebuilt the canonical publishable fixture to be genuinely complete; and added regression coverage for every rule above.
+
+**Findings / rejected approaches.** The independent review reported four confirmed defects and five test-quality weaknesses. All were addressed.
+
+*Committed-state versus working tree.* The review was run while the correction changes were still uncommitted, so it correctly observed that `git diff main...HEAD` did not yet contain them. That is a sequencing artifact of this round, not a code defect; the changes are in this commit.
+
+*Documentation contradicted the code.* The service class comment, `AGENTS.md` and three rows of `docs/IMPLEMENTATION-DECISIONS.md` still described publication as writing an audit row after the write had been removed. All are corrected, and `PUBLIC_APP_ORIGIN` is now listed among the required environment variables.
+
+*Blank certification fields published.* The completeness rule tested `=== null` for a certification's name and issuing authority while the seven basic fields also rejected empty strings. The DTO accepts `''` and the save path stores it unchanged, so an unnamed certification could reach a published version. Both fields now reject empty and whitespace-only values.
+
+*Malformed origin accepted.* `PUBLIC_APP_ORIGIN` was checked for non-emptiness and then had trailing slashes stripped, so `///` reduced to an empty string and `https://` to `https:`, producing a QR code encoding an unscannable relative target with no startup failure. It is now required to parse as an absolute http(s) origin with no path, query or fragment.
+
+*Test quality.* The concurrency test could not distinguish a held row lock from ordinary request ordering; it now holds the product row on a separate connection and asserts that nothing is written while the lock is held, which fails deterministically if `FOR UPDATE` is removed. The replay test asserted two of eleven response fields and now asserts full equality apart from `replayed`. The origin assertion could not distinguish configuration from a hardcoded literal, so the suite now runs against a distinct configured origin. The audit-absence assertion was keyed only to the version id and is now keyed to the actor and every touched entity. Retained-asset coverage now asserts the exact `(role, assetId)` set, plus a duplicate-PDF case and a republish case proving version 1 keeps its references after an image is unlinked.
+
+Rejected: writing the audit row "for now" to satisfy the older documentation, since the audit bonus is a separate milestone with its own event policy. Rejected: making the certification ordering check the only guard, because the database `CHECK` constraint and the draft-save validation already prevent that state; the publication rule is retained as defence in depth and proven directly against the policy rather than by fabricating an unreachable row. Rejected: a dynamic-quality or resize step to satisfy a byte bound, and any new idempotency key, queue, event or storage abstraction.
+
+Recorded as observations rather than defects, for later milestones: a `P2002` inside the publish transaction is mapped to a revision conflict, which is self-healing through replay but imprecise for a hypothetical `publicUuid` collision; the QR is rendered while the row lock is held, which extends lock hold by a few milliseconds; asset revalidation reads without locking, which is unreachable today because the only `state` write is the insert that creates an `ACCEPTED` asset, and must be revisited when quarantine transitions exist; and `PassportVersionAsset` is keyed `(versionId, assetId)`, so one asset used in two roles yields one row and any future consumer reading `role` must account for that.
+
+**Validation evidence.**
+
+| Check | Result |
+| --- | --- |
+| `pnpm check` | **passes** — 72 files linted with no diagnostics, both workspaces typecheck and build, 5 suites / 89 of 89 integration tests against PostgreSQL 18.6 |
+| `pnpm test:e2e` | **9 of 9 pass** against the built API and web app |
+| `pnpm audit` | **no known vulnerabilities** |
+| Publication suite | 28 tests, covering completeness for every sustainability field and every certification field, blank certification fields, future production date, asset revalidation for cover/gallery/document/certification PDF, family mismatch, cross-company refusal, the row lock, exact retained sets, dedupe, immutability across republish, replay equality and origin validation |
+| Independent review | `review` subagent, read-only, over `git diff main...HEAD`; four confirmed defects and five test-quality findings, all resolved above |
+
+**Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has exercised the publication flow. The QR artifact has not been scanned by a real phone or decoded by an independent decoder; that needs a live public target, which Stage 4.2 provides. The public surface, visibility rules, historical browsing, PDF export and analytics do not exist. `PassportReview` remains unused infrastructure. No migration was needed or created.
+
+**Result.** Stage 4.1 now matches its approved contract: publication prerequisites are complete, every referenced asset is revalidated at the public visibility boundary, company-logo and audit participation are out of scope as recorded, and the response exposes stable publication metadata without binary content or the snapshot. The branch awaits Cristian's decision; it has not been merged, and Stage 4.2 has not been started.
