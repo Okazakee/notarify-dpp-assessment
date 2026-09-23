@@ -33,11 +33,11 @@ The QR artifact is automatically generated on first publication and retained/rep
 
 Use a high-contrast code with an intact quiet zone and no logo overlay. Test the exported image by decoding it independently, following its URL and scanning from a real phone. Do not consider an image snapshot sufficient proof of scannability.
 
-## Publication and review
+## Publication and verification
 
 Use the lifecycle in 03. UUID stays stable; version number increases only when a new draft revision is published. Publication validation and snapshot creation are transactional. Repeated/concurrent publication must not create duplicate revisions.
 
-Review is tied to a version. A new published version starts unreviewed until an Admin records review. Preview must show that future state faithfully. Badge wording and scope follow 01; never infer verification from the existence of a PDF or from a content hash.
+Verification is a prototype/application-level indicator on an active published version, presented as described in 01; never infer it from the existence of a PDF or from a content hash. No review or approval workflow is required for the assessment and `PassportReview` may stay unused infrastructure. Preview must show the same verification presentation the public page will show.
 
 ## PDF export decision
 

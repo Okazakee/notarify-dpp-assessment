@@ -60,7 +60,7 @@ Keep the brief's API paths on the Nest server. The external proxy may map `/api/
 | GET /analytics | Authorized aggregate/report queries |
 | GET /dashboard | Four documented counters |
 
-Additional endpoints: refresh/logout/me; product detail; asset upload/download; version history; version review; QR/PDF downloads; QR redirect `/q/{uuid}`; view event ingestion; Users and Settings operations. Define these in the owning feature PR and generated OpenAPI. A separate public HTML route `/passport/{uuid}` belongs to Next.js.
+Additional endpoints: refresh/logout/me; product detail; asset upload/download; version history; QR/PDF downloads; QR redirect `/q/{uuid}`; view event ingestion; Users and Settings operations. Define these in the owning feature PR and generated OpenAPI. A separate public HTML route `/passport/{uuid}` belongs to Next.js.
 
 Use a stable error body with code, safe message, optional field errors and request ID. Invalid input 400, unauthenticated 401, disallowed 403, unavailable/nonexistent resource 404, concurrent edit/duplicate 409, oversized upload 413, throttled request 429. Deleted formerly public passports may return 410 with a non-sensitive tombstone.
 

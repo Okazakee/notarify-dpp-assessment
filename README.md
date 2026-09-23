@@ -2,7 +2,7 @@
 
 Technical assessment submission for **Notarify**: a Digital Product Passport (DPP) application.
 
-> **Status: Milestone 1 merged; the Assets slice is implemented on `build/assets` and awaits acceptance.** The validated schema and initial PostgreSQL migration, the hardened authentication flow, and Product draft CRUD with optimistic concurrency are implemented, verified and merged into `main`. On this branch, binary asset upload with private retrieval and product image/document/certification-PDF attachments are implemented and verified. Publication, passports, QR, PDF export, analytics, Redis, dashboards, Users/Settings and deployment are not implemented. Nothing here is a claim of working software beyond what the sections below describe.
+> **Status: Stages 0–3 complete on `main`; Stage 4.1 is implemented on `build/publication` and awaits acceptance.** The validated schema and initial PostgreSQL migration, the hardened authentication flow, Product draft CRUD with optimistic concurrency, and the Assets slice — validated upload with private retrieval, plus image, document and certification-PDF attachments — are implemented, verified and merged into `main`. On this branch, the publication core is implemented: publish prerequisites, a stable Passport identity, immutable versions, retained asset references, QR generation, republish semantics and publication idempotency. The public passport page and its API, public asset downloads, the QR redirect, PDF export, analytics, Redis, dashboards, Users/Settings, product delete and deployment are not implemented. Nothing here is a claim of working software beyond what the sections below describe.
 
 ## The assessment
 
@@ -21,7 +21,7 @@ The specification set is the entry point for all work. **Start with the roadmap:
 
 | Document | Owns |
 | --- | --- |
-| [00-ROADMAP.md](docs/specs/00-ROADMAP.md) | Stages, seven-day schedule, required coverage, open decisions |
+| [00-ROADMAP.md](docs/specs/00-ROADMAP.md) | Stages, Stage 4 milestones, required coverage, delivery sequence |
 | [01-ESPR-SCOPE.md](docs/specs/01-ESPR-SCOPE.md) | Regulatory boundary, mock-data scope, claims we do not make |
 | [02-ARCHITECTURE.md](docs/specs/02-ARCHITECTURE.md) | Modules, contract ownership, API outline, dependency candidates |
 | [03-DATA-AND-LIFECYCLE.md](docs/specs/03-DATA-AND-LIFECYCLE.md) | Schema blueprint, constraints, publication and deletion |
@@ -38,19 +38,19 @@ The specification set is the entry point for all work. **Start with the roadmap:
 ## Repository layout
 
 ```text
-apps/api               NestJS API                     (planned, empty)
-apps/web               Next.js frontend               (planned, empty)
-packages/api-client    Generated API types and client (planned, empty)
-prisma                 Schema, migrations, seed       (planned, empty)
-fixtures               Mocked JSON seed data          (planned, empty)
+apps/api               NestJS API                     (implemented)
+apps/web               Next.js frontend               (implemented)
+packages/api-client    Generated API types and client (still empty)
+prisma                 Schema, migrations, seed       (implemented)
+fixtures               Mocked JSON seed data          (still empty)
 docs/specs             Planning specifications
 ```
 
-The five code directories hold only `.gitkeep`; no dependency has been installed and no framework selected version has been pinned yet.
+`apps/api`, `apps/web` and `prisma` are implemented. `packages/api-client` and `fixtures` remain empty: the API types are currently hand-written in `apps/web`, and deterministic test fixtures are generated in-process by the test suites.
 
 ## Getting started
 
-The database toolchain runs today; the applications do not exist yet.
+The database toolchain and both applications run locally. The commands below are the supported ones; [AGENTS.md](AGENTS.md) holds the canonical table and the reasons each command exists.
 
 ```bash
 # Requires Node 24.21.0 and pnpm 12.5.1
@@ -63,9 +63,9 @@ pnpm db:migrate               # apply migrations
 
 `prisma/verification/invariant-checks.sql` re-checks the schema-level invariants against an already-migrated database; it rolls back everything it inserts.
 
-The authentication slice, product **draft** CRUD, and the Assets slice exist. The API serves `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `GET /categories`, `POST`/`GET` on `/assets` (validated upload and private retrieval), and `GET`/`POST`/`PATCH` on `/products` (draft editing with optimistic revision checks, including image, document and certification-PDF attachments). The frontend provides login, the workspace, the product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
+The authentication slice, product **draft** CRUD, the Assets slice, and the Stage 4.1 publication core exist. The API serves `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `GET /categories`, `POST`/`GET` on `/assets` (validated upload and private retrieval), `GET`/`POST`/`PATCH` on `/products` (draft editing with optimistic revision checks, including image, document and certification-PDF attachments), and `POST /products/:id/publish` (immutable version creation with a stable passport UUID and QR artifact). The frontend provides login, the workspace, the product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 
-Not implemented: product delete/withdraw, publication and passports, publish authorization, QR, PDF export, analytics, Redis, dashboards, Users/Settings, version review, and deployment.
+Not implemented: product delete/withdraw and soft delete, the public passport page and its API, public asset downloads, the QR redirect and download surface, PDF export, analytics, Redis, dashboards, Users/Settings, and deployment. All nine assessment bonuses remain in scope; see the [roadmap](docs/specs/00-ROADMAP.md) for where each one lands.
 
 ```bash
 pnpm lint && pnpm typecheck && pnpm build     # static checks
@@ -74,7 +74,7 @@ pnpm --filter @notarify/api test:integration  # API tests, real PostgreSQL
 pnpm test:e2e                                 # Playwright auth + product regression
 ```
 
-Application setup, seed and test commands land with roadmap Stage 2 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they exist and have been executed.
+Delivery commands such as the Compose profile and the Swagger/OpenAPI export land with Stage 7 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they exist and have been executed. [AGENTS.md](AGENTS.md) lists what is supported today and what must not be documented as working before it does.
 
 ## Local quality gate and CI
 
@@ -88,7 +88,7 @@ pnpm test:e2e        # Playwright, run by CI and at milestone gates
 
 ## Data and claims
 
-All product, sustainability, certification, and analytics data in this project is **fictional assessment data**. Verification badges are a simulated internal review, not independent certification. This is an assessment prototype informed by the EU ESPR framework; it makes **no claim of ESPR compliance, EU certification, or official DPP registration**. See [01-ESPR-SCOPE.md](docs/specs/01-ESPR-SCOPE.md) for the full boundary.
+All product, sustainability, certification, and analytics data in this project is **fictional assessment data**. A verification badge is a prototype/application-level indicator on an active published passport; it is not independent certification, not proof of authenticity, and not the output of a review or approval process. This is an assessment prototype informed by the EU ESPR framework; it makes **no claim of ESPR compliance, EU certification, or official DPP registration**. See [01-ESPR-SCOPE.md](docs/specs/01-ESPR-SCOPE.md) for the full boundary.
 
 ## AI assistance
 

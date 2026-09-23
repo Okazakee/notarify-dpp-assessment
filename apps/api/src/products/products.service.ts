@@ -5,6 +5,7 @@ import { AssetsService } from '../assets/assets.service.js'
 import { ApiException } from '../common/api-exception.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import type { PublishableDraft } from '../publication/publication.types.js'
 import type { CreateProductDto } from './dto/create-product.dto.js'
 import type { ListProductsQueryDto } from './dto/list-products-query.dto.js'
 import {
@@ -85,6 +86,8 @@ type ProductCountRow = {
   count: bigint
 }
 type MutationTransaction = Prisma.TransactionClient
+
+export type { MutationTransaction }
 
 type ScalarProductFields = Pick<
   CreateProductDto,
@@ -187,6 +190,75 @@ export class ProductsService {
       throw this.productNotFound()
     }
     return this.mapDetail(product)
+  }
+
+  /**
+   * Loads the draft content a publication needs, inside the caller's transaction.
+   *
+   * Publication owns the publish transaction, but product content is owned by this
+   * module, so this is the single place publication reads draft rows. Reading through
+   * the caller's client keeps the snapshot consistent with the row lock publication
+   * already holds.
+   */
+  async loadPublishableDraft(
+    tx: MutationTransaction,
+    companyId: string,
+    productId: string,
+  ): Promise<PublishableDraft | null> {
+    const product = await tx.product.findFirst({
+      where: { id: productId, companyId, deletedAt: null },
+      include: PRODUCT_DETAIL_INCLUDE,
+    })
+    if (product === null) {
+      return null
+    }
+
+    return {
+      id: product.id,
+      name: product.name,
+      sku: product.sku,
+      serialNumber: product.serialNumber,
+      categoryId: product.categoryId,
+      categoryName: product.category?.name ?? null,
+      description: product.description,
+      productionDate: this.serializeDate(product.productionDate),
+      originCountry: product.originCountry,
+      materials: product.materials.map((material) => ({
+        name: material.name,
+        percentage: this.decimalToNumber(material.percentage) ?? 0,
+        originCountry: material.originCountry,
+        recyclable: material.recyclable,
+        position: material.position,
+      })),
+      sustainability: product.sustainability
+        ? {
+            carbonKgCo2e: this.decimalToNumber(product.sustainability.carbonKgCo2e),
+            waterLitres: this.decimalToNumber(product.sustainability.waterLitres),
+            recycledPercent: this.decimalToNumber(product.sustainability.recycledPercent),
+            repairabilityScore: this.decimalToNumber(product.sustainability.repairabilityScore),
+            recyclable: product.sustainability.recyclable,
+          }
+        : null,
+      certifications: product.certifications.map((certification) => ({
+        name: certification.name,
+        issuingAuthority: certification.issuingAuthority,
+        issueDate: this.serializeDate(certification.issueDate),
+        expirationDate: this.serializeDate(certification.expirationDate),
+        pdfAssetId: certification.pdfAssetId,
+      })),
+      images: product.images.map((image) => ({
+        assetId: image.assetId,
+        role: image.role,
+        position: image.position,
+        altText: image.altText,
+      })),
+      documents: product.documents.map((document) => ({
+        assetId: document.assetId,
+        kind: document.kind,
+        title: document.title,
+        position: document.position,
+      })),
+    }
   }
 
   async update(companyId: string, id: string, input: PatchProductDto): Promise<ProductDetail> {

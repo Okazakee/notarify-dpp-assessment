@@ -16,7 +16,7 @@ The Commission describes progressive sector-specific DPP implementation. Our app
 
 ## Mock verification and analytics
 
-Seed reviewed and unreviewed versions so the required Verified Product badge and verification status are demonstrable. Explain in the UI or demo context that verification is simulated/internal. An additional real-world verification integration is unnecessary.
+Make the required Verified Product badge and verification status demonstrable on published content. Explain in the UI or demo context that verification is prototype/application-level. No review or approval subsystem is required to display it, and an additional real-world verification integration is unnecessary.
 
 Historical scans, IPs, browser metadata and countries can be synthetic. Real requests to the running demo are still real requests, so new scan tracking should behave as required by the PDF and keep collected metadata protected. Mocked seed data does not require disabling actual analytics or uploads.
 

@@ -33,7 +33,7 @@ Zustand is included as requested; it does not need to hold every category of sta
 | Users | Admin list/create/role/disable flows and last-Admin protection |
 | Settings | Company display name/logo; read-only operational origin information if useful |
 
-Users and Settings are under-specified in the brief. These minimum useful flows are proposed scope, not extra features disguised as requirements. Hide restricted navigation from Editor and still enforce authorization at the API.
+Users and Settings are under-specified in the brief. The minimum useful flows described here are required remaining work, scheduled in Stage 6 of the roadmap; they stay proportional to the brief rather than growing into an enterprise administration surface. Hide restricted navigation from Editor and still enforce authorization at the API.
 
 The product list includes image, name, SKU, status, QR, total views and actions: view, edit, delete, open passport, download QR. Draft rows show unavailable public actions clearly instead of broken links. Destructive actions require a clear confirmation dialog.
 

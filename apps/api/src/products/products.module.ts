@@ -9,5 +9,6 @@ import { ProductsService } from './products.service.js'
   imports: [AuthModule, AssetsModule],
   controllers: [ProductsController, CategoriesController],
   providers: [ProductsService],
+  exports: [ProductsService],
 })
 export class ProductsModule {}

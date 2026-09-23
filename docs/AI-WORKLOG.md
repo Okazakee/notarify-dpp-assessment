@@ -486,3 +486,82 @@ A fourth defect was found after the independent review, in the pre-acceptance pa
 **Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has manually exercised the upload UX. Everything the Assets round listed as deferred is still deferred: antivirus, malware sandboxing and PDF CDR; a concurrency cap on image decoding; garbage collection of unlinked uploads; `MaterialInputDto` limits; container, deployment and VPS capacity work. Publication, Passport and public-asset work has not been started.
 
 **Result.** The Assets slice is integrated into `main`. Capability: authenticated upload of validated images and PDFs, private company-scoped retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, all under the existing atomic `draftRevision` contract and with both the uploaded and stored representations bounded. The next milestone requires an explicit Cristian instruction, a fresh Gate 0 and Gate 1, and a new scoped branch from the then-current `main`.
+
+---
+
+## 2026-09-23 — Roadmap normalization and Stage 4.1 publication core
+
+**Scope.** Two connected pieces on `build/publication`, branched from `main` at `627fb94`. First, a repository-wide planning-document reconciliation that normalizes the roadmap to the canonical stage model and records two settled semantics. Second, Stage 4.1 of the canonical roadmap: publication prerequisites, `POST /products/:id/publish`, stable Passport identity, immutable `PassportVersion`, retained `PassportVersionAsset` references, QR artifact generation, republish semantics, and publication concurrency and idempotency. Explicitly excluded and not started: the remaining Stage 4 milestones (public passport API and page, public asset downloads, QR redirect, back-office Passports page, version history, PDF export), and everything in Stages 5–7.
+
+**AI participation.** Pi performed the reconciliation, the implementation, the tests and the validation on the `opencode-go/deepseek-v4.1-flash` route. Two read-only subagents were used on that same route: `explore` to inventory stale planning and status statements across all fifteen documents against the canonical roadmap, and `research` to verify the current release, module format, types, license and API shape of the QR dependency before adding it. No external model participated in this round.
+
+**Human review.** Decision/scope review: Cristian supplied the canonical project goal, the canonical remaining roadmap, the six-milestone Stage 4 decomposition and the two settled semantics, and approved them for this pass; he also required the reconciliation to be a dedicated early commit. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built.
+
+**Decisions.** Recorded in section B6 of `docs/IMPLEMENTATION-DECISIONS.md` and owned by `docs/specs/00-ROADMAP.md`. The roadmap now carries eight stages (0–7), Stage 4 is six independent milestones, and all nine bonuses remain in scope with none described as optional or expendable. Two semantics settled: verification is a prototype/application-level indicator on an active published passport with no review or approval subsystem required, and the public passport's brand logo is satisfied by a bundled application asset, so publication does not depend on `Company.logoAssetId`. For Stage 4.1 specifically: publication prerequisites are publication-only and never block a draft save; the public UUID and QR are allocated once and retained; the QR target origin comes from validated `PUBLIC_APP_ORIGIN` configuration rather than a request `Host` header; and `qrcode` 1.5.4 is pinned with `@types/qrcode`.
+
+**Work performed.** Reconciled `README.md`, `AGENTS.md`, `docs/IMPLEMENTATION-DECISIONS.md` and eight specs, correcting stage numbering, the single-slice Stage 4, PDF export placement, Users/Settings placement, Product DELETE absence, stale implemented-module and test-count claims, review-workflow assumptions, the company-logo prerequisite and Redis described as deferrable. Left historical planning prose in place where the decisions record already directs that approval be recorded there instead. Then added `PublicationModule` (publish transaction, policy, QR rendering, controller, DTO), a transaction-aware draft loader on `ProductsService`, `PUBLIC_APP_ORIGIN` validated configuration, and ten integration tests.
+
+**Findings / rejected approaches.** The document inventory found fifteen categories of stale statement across eleven files; the substantive ones were structural rather than cosmetic — a stage model with seven rows rather than eight, Stage 4 as one slice, PDF export scheduled with Stage 5, a review workflow treated as mandatory project work, and a company-logo publication prerequisite. Rejected: mechanically editing every file, since several documents were already consistent and the project requires one owning document per subject. Rejected: rewriting the specs' original planning prose, because the decisions record already directs that approvals be recorded there rather than retro-fitted into history. Rejected: a review/approval subsystem merely to satisfy a badge, and a dynamic-quality or resize step to satisfy the byte bound.
+
+On the implementation, the first smoke run appeared to reject a complete draft; the cause was the test script passing `categoryId: null` explicitly, and the prerequisite was correct to refuse it. The QR option surface has a trap worth recording: `toBuffer` accepts only PNG, and passing `type: 'svg'` fails at runtime, so SVG requires `toString`. An integer `scale` is used rather than `width`, because a width that is not an exact multiple of modules plus quiet zone yields a fractional scale that can clip the quiet zone.
+
+**Validation evidence.**
+
+| Check | Result |
+| --- | --- |
+| `pnpm check` | **passes** — schema valid, 72 files linted with no diagnostics, both workspaces typecheck and build, 5 suites / 71 of 71 integration tests against PostgreSQL 18.6 |
+| `pnpm test:e2e` | **9 of 9 pass** against the built API and web app |
+| `pnpm audit` | **no known vulnerabilities** |
+| Publication smoke test | incomplete draft → 400 `PUBLICATION_INCOMPLETE` naming the missing fields; complete draft → version 1 with a stable UUID and QR target; same revision again → `replayed=true` with the same version id; stale revision → 409; edit then republish → version 2 with the same UUID |
+| QR artifact | a real decodable PNG (328×328, 2467 bytes) read back from `Passport.qrPngBytes`, not a placeholder |
+| Retained assets | each version carries its `PassportVersionAsset` rows; two versions each retained their cover image and product document |
+| Immutability | version 1 still held its pre-edit snapshot after version 2 was published, and the current-version pointer moved to version 2 |
+| Worktree integrity | clean after the build and browser cycles; `next-env.d.ts` untracked, no generated agent files, `agentRules: false` and the pinned production build retained |
+
+**Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has manually exercised the publication flow or the editor. No independent review of the Stage 4.1 diff has been run yet; the milestone's Gate 3 review is still owed. The public surface does not exist yet, so the QR target URL resolves to nothing until Stage 4.2, and the QR has not been scanned by a real phone or decoded by an independent decoder. There is no public visibility rule, no historical-version browsing, no PDF, and no analytics. `PassportReview` remains unused infrastructure. Everything the Assets round deferred is still deferred.
+
+**Result.** The repository's planning surface now describes one canonical roadmap, and Stage 4.1 is implemented: an authorized editor or admin can publish a complete draft into an immutable, idempotently-addressable version with a stable public identity and QR artifact, retaining its asset references, and can republish after further edits without disturbing published history. The branch awaits Cristian's decision; it has not been merged, and Stages 4.2–4.6 and 5–7 have not been started.
+
+---
+
+## 2026-09-23 — Stage 4.1 review corrections
+
+**Scope.** A focused correction round on `build/publication`, driven by an external independent review of the Stage 4.1 contract and by the milestone's own Gate 3 review. No new milestone, no new feature, and no change to the publication architecture: the `FOR UPDATE` serialization, `expectedDraftRevision` precondition, stable Passport UUID, single QR allocation, same-revision replay, `(passportId, sourceDraftRevision)` idempotency, immutable snapshots, current-version pointer and retained asset references are all preserved unchanged.
+
+**AI participation.** Pi performed the corrections, the regression tests and the validation on the `opencode-go/deepseek-v4.1-flash` route. One read-only subagent was used, on that same route: `review`, for the milestone's required independent Gate 3 review of the entire Stage 4.1 diff from `main`. No external model participated in this round.
+
+**Human review.** Decision/scope review: Cristian supplied the review findings, the required behaviours and the boundaries of this round, and required the independent Gate 3 review that had been owed. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built.
+
+**Decisions.** No new architecture decision. The publication completeness rule was tightened to match the approved contract: sustainability must be present **and** carry all five assessment fields; each certification must carry all five fields including its expiration date, with a non-empty name and issuing authority; the production date must not be in the future, compared as date-only strings rather than timestamps. Every referenced asset is now revalidated inside the publish transaction and before version creation. Company-logo participation and the publication `AuditEvent` were removed from Stage 4.1, and the response contract was completed. All of this is recorded in section B7 of `docs/IMPLEMENTATION-DECISIONS.md`.
+
+**Work performed.** Added asset revalidation through `AssetsService.findLinkableAssets`; tightened the completeness rules; removed `logoAssetId` from the snapshot and `COMPANY_LOGO` from retained assets; removed the publication audit write and its assertion; completed the publication response; validated `PUBLIC_APP_ORIGIN` as an absolute http(s) origin; rebuilt the canonical publishable fixture to be genuinely complete; and added regression coverage for every rule above.
+
+**Findings / rejected approaches.** The independent review reported four confirmed defects and five test-quality weaknesses. All were addressed.
+
+*Committed-state versus working tree.* The review was run while the correction changes were still uncommitted, so it correctly observed that `git diff main...HEAD` did not yet contain them. That is a sequencing artifact of this round, not a code defect; the changes are in this commit.
+
+*Documentation contradicted the code.* The service class comment, `AGENTS.md` and three rows of `docs/IMPLEMENTATION-DECISIONS.md` still described publication as writing an audit row after the write had been removed. All are corrected, and `PUBLIC_APP_ORIGIN` is now listed among the required environment variables.
+
+*Blank certification fields published.* The completeness rule tested `=== null` for a certification's name and issuing authority while the seven basic fields also rejected empty strings. The DTO accepts `''` and the save path stores it unchanged, so an unnamed certification could reach a published version. Both fields now reject empty and whitespace-only values.
+
+*Malformed origin accepted.* `PUBLIC_APP_ORIGIN` was checked for non-emptiness and then had trailing slashes stripped, so `///` reduced to an empty string and `https://` to `https:`, producing a QR code encoding an unscannable relative target with no startup failure. It is now required to parse as an absolute http(s) origin with no path, query or fragment.
+
+*Test quality.* The concurrency test could not distinguish a held row lock from ordinary request ordering; it now holds the product row on a separate connection and asserts that nothing is written while the lock is held, which fails deterministically if `FOR UPDATE` is removed. The replay test asserted two of eleven response fields and now asserts full equality apart from `replayed`. The origin assertion could not distinguish configuration from a hardcoded literal, so the suite now runs against a distinct configured origin. The audit-absence assertion was keyed only to the version id and is now keyed to the actor and every touched entity. Retained-asset coverage now asserts the exact `(role, assetId)` set, plus a duplicate-PDF case and a republish case proving version 1 keeps its references after an image is unlinked.
+
+Rejected: writing the audit row "for now" to satisfy the older documentation, since the audit bonus is a separate milestone with its own event policy. Rejected: making the certification ordering check the only guard, because the database `CHECK` constraint and the draft-save validation already prevent that state; the publication rule is retained as defence in depth and proven directly against the policy rather than by fabricating an unreachable row. Rejected: a dynamic-quality or resize step to satisfy a byte bound, and any new idempotency key, queue, event or storage abstraction.
+
+Recorded as observations rather than defects, for later milestones: a `P2002` inside the publish transaction is mapped to a revision conflict, which is self-healing through replay but imprecise for a hypothetical `publicUuid` collision; the QR is rendered while the row lock is held, which extends lock hold by a few milliseconds; asset revalidation reads without locking, which is unreachable today because the only `state` write is the insert that creates an `ACCEPTED` asset, and must be revisited when quarantine transitions exist; and `PassportVersionAsset` is keyed `(versionId, assetId)`, so one asset used in two roles yields one row and any future consumer reading `role` must account for that.
+
+**Validation evidence.**
+
+| Check | Result |
+| --- | --- |
+| `pnpm check` | **passes** — 72 files linted with no diagnostics, both workspaces typecheck and build, 5 suites / 89 of 89 integration tests against PostgreSQL 18.6 |
+| `pnpm test:e2e` | **9 of 9 pass** against the built API and web app |
+| `pnpm audit` | **no known vulnerabilities** |
+| Publication suite | 28 tests, covering completeness for every sustainability field and every certification field, blank certification fields, future production date, asset revalidation for cover/gallery/document/certification PDF, family mismatch, cross-company refusal, the row lock, exact retained sets, dedupe, immutability across republish, replay equality and origin validation |
+| Independent review | `review` subagent, read-only, over `git diff main...HEAD`; four confirmed defects and five test-quality findings, all resolved above |
+
+**Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has exercised the publication flow. The QR artifact has not been scanned by a real phone or decoded by an independent decoder; that needs a live public target, which Stage 4.2 provides. The public surface, visibility rules, historical browsing, PDF export and analytics do not exist. `PassportReview` remains unused infrastructure. No migration was needed or created.
+
+**Result.** Stage 4.1 now matches its approved contract: publication prerequisites are complete, every referenced asset is revalidated at the public visibility boundary, company-logo and audit participation are out of scope as recorded, and the response exposes stable publication metadata without binary content or the snapshot. The branch awaits Cristian's decision; it has not been merged, and Stage 4.2 has not been started.
