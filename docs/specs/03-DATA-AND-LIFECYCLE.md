@@ -49,7 +49,7 @@ Indexes: product status-related queries via passport relation/deletedAt; product
 
 1. Creating a product creates a draft; no public UUID is exposed yet.
 2. Every accepted editor mutation increments `draftRevision`. Clients supply the revision they edited; stale updates return 409.
-3. Publish takes an expected revision. Within a database transaction, lock/conditionally claim that product revision, verify all publish rules, create or reuse its Passport, and create the immutable version plus asset references and audit record.
+3. Publish takes an expected revision. Within a database transaction, lock/conditionally claim that product revision, verify all publish rules, create or reuse its Passport, and create the immutable version plus its retained asset references. Publication writes no audit record; audit logging is a separate bonus milestone with its own event and action policy.
 4. First publication allocates the UUID; it remains stable on republish. Unique revision and version constraints prevent duplicate concurrent publications. Retrying the same published revision returns the existing publication.
 5. Generate the small QR PNG using the allocated/reused UUID and persist its bytes and target URL on Passport in the publication transaction. Like the proposed database-backed assets, this keeps publication and QR creation atomic. It can also be regenerated from the stored canonical target. Bound QR payload size and test concurrent first publication.
 6. Editing published content changes draft rows only. Public reads remain on the current published version until explicit republish.
@@ -57,7 +57,7 @@ Indexes: product status-related queries via passport relation/deletedAt; product
 
 Product status is derived: Published if an active publication exists, Draft otherwise; deleted products are excluded from normal lists. Track “unpublished changes” separately rather than incorrectly flipping a published product back to Draft.
 
-Company branding is copied into each publication snapshot and its logo is retained through PassportVersionAsset. Settings changes affect future publications only. To update an existing passport's branding, explicitly create a new draft revision and republish; do not mutate historical snapshot content.
+The company display name is copied into each publication snapshot. The brand logo is **not** snapshotted and no `COMPANY_LOGO` retained reference is written: the public passport's brand logo is satisfied by a bundled application brand asset, and `Company.logoAssetId` stays unused infrastructure unless a later Settings decision changes that. Settings changes affect future publications only. To update an existing passport's branding, explicitly create a new draft revision and republish; do not mutate historical snapshot content.
 
 ## Migration and seed policy
 
