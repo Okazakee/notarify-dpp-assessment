@@ -1499,296 +1499,6 @@ export default function ProductEditorPage() {
 
           <section
             role="tabpanel"
-            id="panel-images"
-            aria-labelledby="tab-images"
-            data-tab-panel="images"
-            hidden={tab !== 'images'}
-            className={`card border border-base-300 bg-base-100 shadow-sm ${
-              tab === 'images' ? '' : 'hidden'
-            }`}
-          >
-            <div className="card-body gap-5">
-              <div>
-                <h2 id="images-heading" className="card-title text-xl">
-                  Images
-                </h2>
-                <p className="mt-1 text-sm text-base-content/70">
-                  One cover image and up to {MAX_GALLERY_IMAGES} gallery images. JPEG, PNG or WebP,
-                  up to 5 MiB each. The API re-encodes every upload and strips metadata.
-                </p>
-              </div>
-
-              {uploadError !== null ? (
-                <p role="alert" className="text-sm text-error">
-                  {uploadError}
-                </p>
-              ) : null}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="form-control">
-                  <label className="label" htmlFor="cover-image">
-                    <span className="label-text font-medium">
-                      {coverImage === undefined ? 'Cover image' : 'Replace cover image'}
-                    </span>
-                  </label>
-                  <input
-                    id="cover-image"
-                    type="file"
-                    accept={IMAGE_ACCEPT}
-                    disabled={isUploading}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      event.target.value = ''
-                      if (file !== undefined) {
-                        void addImage(file, 'COVER')
-                      }
-                    }}
-                    className="file-input file-input-bordered w-full"
-                  />
-                </div>
-                <div className="form-control">
-                  <label className="label" htmlFor="gallery-image">
-                    <span className="label-text font-medium">Add gallery image</span>
-                  </label>
-                  <input
-                    id="gallery-image"
-                    type="file"
-                    accept={IMAGE_ACCEPT}
-                    disabled={isUploading}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      event.target.value = ''
-                      if (file !== undefined) {
-                        void addImage(file, 'GALLERY')
-                      }
-                    }}
-                    className="file-input file-input-bordered w-full"
-                  />
-                </div>
-              </div>
-
-              <label
-                htmlFor="gallery-image"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const file = event.dataTransfer.files?.[0]
-                  if (file !== undefined) {
-                    void addImage(file, 'GALLERY')
-                  }
-                }}
-                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
-              >
-                Or drop an image here to add it to the gallery.
-              </label>
-
-              {form.images.length === 0 ? (
-                <p className="text-sm text-base-content/70">No images attached yet.</p>
-              ) : (
-                <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {form.images.map((image, index) => (
-                    <li
-                      key={image.clientId}
-                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
-                    >
-                      <AssetPreview
-                        request={request}
-                        assetId={image.assetId}
-                        alt={image.altText.length > 0 ? image.altText : image.originalName}
-                      />
-                      <p className="text-sm font-semibold">
-                        {image.role === 'COVER'
-                          ? 'Cover'
-                          : `Gallery ${galleryIndex(form.images, index) + 1}`}
-                      </p>
-                      <p
-                        className="truncate text-xs text-base-content/70"
-                        title={image.originalName}
-                      >
-                        {image.originalName}
-                      </p>
-                      <div className="form-control">
-                        <label className="label" htmlFor={`image-alt-${index}`}>
-                          <span className="label-text text-xs">Alt text</span>
-                        </label>
-                        <input
-                          id={`image-alt-${index}`}
-                          type="text"
-                          value={image.altText}
-                          maxLength={240}
-                          onChange={(event) => updateImage(index, { altText: event.target.value })}
-                          className="input input-bordered input-sm w-full"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          disabled={image.role === 'COVER'}
-                          onClick={() => moveImage(index, -1)}
-                        >
-                          Move up
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          disabled={image.role === 'COVER'}
-                          onClick={() => moveImage(index, 1)}
-                        >
-                          Move down
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-error btn-outline btn-xs"
-                          onClick={() => removeImage(index)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          <section
-            role="tabpanel"
-            id="panel-documents"
-            aria-labelledby="tab-documents"
-            data-tab-panel="documents"
-            hidden={tab !== 'documents'}
-            className={`card border border-base-300 bg-base-100 shadow-sm ${
-              tab === 'documents' ? '' : 'hidden'
-            }`}
-          >
-            <div className="card-body gap-5">
-              <div>
-                <h2 id="documents-heading" className="card-title text-xl">
-                  Documents
-                </h2>
-                <p className="mt-1 text-sm text-base-content/70">
-                  Manuals, warranties and technical datasheets as PDF, up to 10 MiB each.
-                </p>
-              </div>
-
-              <label
-                htmlFor="document-upload-MANUAL"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const file = event.dataTransfer.files?.[0]
-                  if (file !== undefined) {
-                    void addDocument(file, 'MANUAL')
-                  }
-                }}
-                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
-              >
-                Drop a PDF here to attach it as a manual.
-              </label>
-
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {DOCUMENT_KINDS.map((kind) => (
-                  <div className="form-control" key={kind}>
-                    <label className="label" htmlFor={`document-upload-${kind}`}>
-                      <span className="label-text font-medium">
-                        Add {DOCUMENT_KIND_LABELS[kind].toLowerCase()}
-                      </span>
-                    </label>
-                    <input
-                      id={`document-upload-${kind}`}
-                      type="file"
-                      accept={PDF_ACCEPT}
-                      disabled={isUploading}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        event.target.value = ''
-                        if (file !== undefined) {
-                          void addDocument(file, kind)
-                        }
-                      }}
-                      className="file-input file-input-bordered w-full"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {form.documents.length === 0 ? (
-                <p className="text-sm text-base-content/70">No documents attached yet.</p>
-              ) : (
-                <ul className="grid gap-4 md:grid-cols-2">
-                  {form.documents.map((document, index) => (
-                    <li
-                      key={document.clientId}
-                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
-                    >
-                      <p className="truncate text-sm font-semibold" title={document.originalName}>
-                        {document.originalName}
-                      </p>
-                      <div className="form-control">
-                        <label className="label" htmlFor={`document-kind-${index}`}>
-                          <span className="label-text text-xs">Type</span>
-                        </label>
-                        <select
-                          id={`document-kind-${index}`}
-                          value={document.kind}
-                          onChange={(event) =>
-                            updateDocument(index, { kind: event.target.value as DocumentKind })
-                          }
-                          className="select select-bordered select-sm w-full"
-                        >
-                          {DOCUMENT_KINDS.map((kind) => (
-                            <option key={kind} value={kind}>
-                              {DOCUMENT_KIND_LABELS[kind]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="form-control">
-                        <label className="label" htmlFor={`document-title-${index}`}>
-                          <span className="label-text text-xs">Title</span>
-                        </label>
-                        <input
-                          id={`document-title-${index}`}
-                          type="text"
-                          value={document.title}
-                          maxLength={240}
-                          onChange={(event) => updateDocument(index, { title: event.target.value })}
-                          className="input input-bordered input-sm w-full"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          onClick={() => moveDocument(index, -1)}
-                        >
-                          Move up
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          onClick={() => moveDocument(index, 1)}
-                        >
-                          Move down
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-error btn-outline btn-xs"
-                          onClick={() => removeDocument(index)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          <section
-            role="tabpanel"
             id="panel-materials"
             aria-labelledby="tab-materials"
             data-tab-panel="materials"
@@ -2277,6 +1987,296 @@ export default function ProductEditorPage() {
                     </fieldset>
                   ))}
                 </div>
+              )}
+            </div>
+          </section>
+
+          <section
+            role="tabpanel"
+            id="panel-documents"
+            aria-labelledby="tab-documents"
+            data-tab-panel="documents"
+            hidden={tab !== 'documents'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'documents' ? '' : 'hidden'
+            }`}
+          >
+            <div className="card-body gap-5">
+              <div>
+                <h2 id="documents-heading" className="card-title text-xl">
+                  Documents
+                </h2>
+                <p className="mt-1 text-sm text-base-content/70">
+                  Manuals, warranties and technical datasheets as PDF, up to 10 MiB each.
+                </p>
+              </div>
+
+              <label
+                htmlFor="document-upload-MANUAL"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (file !== undefined) {
+                    void addDocument(file, 'MANUAL')
+                  }
+                }}
+                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
+              >
+                Drop a PDF here to attach it as a manual.
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {DOCUMENT_KINDS.map((kind) => (
+                  <div className="form-control" key={kind}>
+                    <label className="label" htmlFor={`document-upload-${kind}`}>
+                      <span className="label-text font-medium">
+                        Add {DOCUMENT_KIND_LABELS[kind].toLowerCase()}
+                      </span>
+                    </label>
+                    <input
+                      id={`document-upload-${kind}`}
+                      type="file"
+                      accept={PDF_ACCEPT}
+                      disabled={isUploading}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        event.target.value = ''
+                        if (file !== undefined) {
+                          void addDocument(file, kind)
+                        }
+                      }}
+                      className="file-input file-input-bordered w-full"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {form.documents.length === 0 ? (
+                <p className="text-sm text-base-content/70">No documents attached yet.</p>
+              ) : (
+                <ul className="grid gap-4 md:grid-cols-2">
+                  {form.documents.map((document, index) => (
+                    <li
+                      key={document.clientId}
+                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
+                    >
+                      <p className="truncate text-sm font-semibold" title={document.originalName}>
+                        {document.originalName}
+                      </p>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`document-kind-${index}`}>
+                          <span className="label-text text-xs">Type</span>
+                        </label>
+                        <select
+                          id={`document-kind-${index}`}
+                          value={document.kind}
+                          onChange={(event) =>
+                            updateDocument(index, { kind: event.target.value as DocumentKind })
+                          }
+                          className="select select-bordered select-sm w-full"
+                        >
+                          {DOCUMENT_KINDS.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {DOCUMENT_KIND_LABELS[kind]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`document-title-${index}`}>
+                          <span className="label-text text-xs">Title</span>
+                        </label>
+                        <input
+                          id={`document-title-${index}`}
+                          type="text"
+                          value={document.title}
+                          maxLength={240}
+                          onChange={(event) => updateDocument(index, { title: event.target.value })}
+                          className="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => moveDocument(index, -1)}
+                        >
+                          Move up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => moveDocument(index, 1)}
+                        >
+                          Move down
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => removeDocument(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section
+            role="tabpanel"
+            id="panel-images"
+            aria-labelledby="tab-images"
+            data-tab-panel="images"
+            hidden={tab !== 'images'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'images' ? '' : 'hidden'
+            }`}
+          >
+            <div className="card-body gap-5">
+              <div>
+                <h2 id="images-heading" className="card-title text-xl">
+                  Images
+                </h2>
+                <p className="mt-1 text-sm text-base-content/70">
+                  One cover image and up to {MAX_GALLERY_IMAGES} gallery images. JPEG, PNG or WebP,
+                  up to 5 MiB each. The API re-encodes every upload and strips metadata.
+                </p>
+              </div>
+
+              {uploadError !== null ? (
+                <p role="alert" className="text-sm text-error">
+                  {uploadError}
+                </p>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="form-control">
+                  <label className="label" htmlFor="cover-image">
+                    <span className="label-text font-medium">
+                      {coverImage === undefined ? 'Cover image' : 'Replace cover image'}
+                    </span>
+                  </label>
+                  <input
+                    id="cover-image"
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file !== undefined) {
+                        void addImage(file, 'COVER')
+                      }
+                    }}
+                    className="file-input file-input-bordered w-full"
+                  />
+                </div>
+                <div className="form-control">
+                  <label className="label" htmlFor="gallery-image">
+                    <span className="label-text font-medium">Add gallery image</span>
+                  </label>
+                  <input
+                    id="gallery-image"
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file !== undefined) {
+                        void addImage(file, 'GALLERY')
+                      }
+                    }}
+                    className="file-input file-input-bordered w-full"
+                  />
+                </div>
+              </div>
+
+              <label
+                htmlFor="gallery-image"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (file !== undefined) {
+                    void addImage(file, 'GALLERY')
+                  }
+                }}
+                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
+              >
+                Or drop an image here to add it to the gallery.
+              </label>
+
+              {form.images.length === 0 ? (
+                <p className="text-sm text-base-content/70">No images attached yet.</p>
+              ) : (
+                <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {form.images.map((image, index) => (
+                    <li
+                      key={image.clientId}
+                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
+                    >
+                      <AssetPreview
+                        request={request}
+                        assetId={image.assetId}
+                        alt={image.altText.length > 0 ? image.altText : image.originalName}
+                      />
+                      <p className="text-sm font-semibold">
+                        {image.role === 'COVER'
+                          ? 'Cover'
+                          : `Gallery ${galleryIndex(form.images, index) + 1}`}
+                      </p>
+                      <p
+                        className="truncate text-xs text-base-content/70"
+                        title={image.originalName}
+                      >
+                        {image.originalName}
+                      </p>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`image-alt-${index}`}>
+                          <span className="label-text text-xs">Alt text</span>
+                        </label>
+                        <input
+                          id={`image-alt-${index}`}
+                          type="text"
+                          value={image.altText}
+                          maxLength={240}
+                          onChange={(event) => updateImage(index, { altText: event.target.value })}
+                          className="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          disabled={image.role === 'COVER'}
+                          onClick={() => moveImage(index, -1)}
+                        >
+                          Move up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          disabled={image.role === 'COVER'}
+                          onClick={() => moveImage(index, 1)}
+                        >
+                          Move down
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => removeImage(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </section>
