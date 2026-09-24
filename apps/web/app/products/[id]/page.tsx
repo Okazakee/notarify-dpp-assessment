@@ -556,23 +556,31 @@ function toSavePayload(form: ProductEditorForm): SavePayload {
   }
 }
 
-function validateForm(form: ProductEditorForm): string | null {
-  const countryFields = [
-    ['origin country', form.originCountry],
-    ...form.materials.map((material, index) => [
-      `material ${index + 1} origin country`,
-      material.originCountry,
-    ]),
-  ] as const
-  for (const [label, value] of countryFields) {
-    if (value.length > 0 && !/^[A-Z]{2}$/.test(value.toUpperCase())) {
-      return `${label} must be a two-letter country code.`
+/**
+ * A blockable client-side validation failure.
+ *
+ * It names the tab that owns the offending field so the editor can reveal it: a field in a
+ * hidden panel can neither show native feedback nor be focused, which would make Save look
+ * inert when the tab is not open.
+ */
+type ValidationFailure = { message: string; tab: EditorTab; fieldId: string }
+
+function validateForm(form: ProductEditorForm): ValidationFailure | null {
+  if (form.originCountry.length > 0 && !/^[A-Z]{2}$/.test(form.originCountry.toUpperCase())) {
+    return {
+      message: 'origin country must be a two-letter country code.',
+      tab: 'general',
+      fieldId: 'origin-country',
     }
   }
 
   for (const [index, material] of form.materials.entries()) {
     if (material.name.trim().length === 0) {
-      return `Material ${index + 1} needs a name.`
+      return {
+        message: `Material ${index + 1} needs a name.`,
+        tab: 'materials',
+        fieldId: `material-name-${index}`,
+      }
     }
     const percentage = Number(material.percentage)
     if (
@@ -581,35 +589,57 @@ function validateForm(form: ProductEditorForm): string | null {
       percentage < 0 ||
       percentage > 100
     ) {
-      return `Material ${index + 1} percentage must be between 0 and 100.`
+      return {
+        message: `Material ${index + 1} percentage must be between 0 and 100.`,
+        tab: 'materials',
+        fieldId: `material-percentage-${index}`,
+      }
+    }
+    if (
+      material.originCountry.length > 0 &&
+      !/^[A-Z]{2}$/.test(material.originCountry.toUpperCase())
+    ) {
+      return {
+        message: `material ${index + 1} origin country must be a two-letter country code.`,
+        tab: 'materials',
+        fieldId: `material-country-${index}`,
+      }
     }
   }
 
   if (form.sustainability !== null) {
-    const numericFields: Array<[string, string, number]> = [
-      ['carbon footprint', form.sustainability.carbonKgCo2e, Number.POSITIVE_INFINITY],
-      ['water usage', form.sustainability.waterLitres, Number.POSITIVE_INFINITY],
-      ['recycled percentage', form.sustainability.recycledPercent, 100],
-      ['repairability score', form.sustainability.repairabilityScore, 10],
+    const numericFields: Array<[string, string, number, string]> = [
+      ['carbon footprint', form.sustainability.carbonKgCo2e, Number.POSITIVE_INFINITY, 'carbon-kg'],
+      ['water usage', form.sustainability.waterLitres, Number.POSITIVE_INFINITY, 'water-litres'],
+      ['recycled percentage', form.sustainability.recycledPercent, 100, 'recycled-percent'],
+      ['repairability score', form.sustainability.repairabilityScore, 10, 'repairability-score'],
     ]
-    for (const [label, value, maximum] of numericFields) {
+    for (const [label, value, maximum, fieldId] of numericFields) {
       if (value.trim().length === 0) {
         continue
       }
       const number = Number(value)
       if (!Number.isFinite(number) || number < 0 || number > maximum) {
-        return `${label} must be a valid non-negative number${Number.isFinite(maximum) ? ` no greater than ${maximum}` : ''}.`
+        return {
+          message: `${label} must be a valid non-negative number${Number.isFinite(maximum) ? ` no greater than ${maximum}` : ''}.`,
+          tab: 'sustainability',
+          fieldId,
+        }
       }
     }
   }
 
   const coverCount = form.images.filter((image) => image.role === 'COVER').length
   if (coverCount > 1) {
-    return 'Choose at most one cover image.'
+    return { message: 'Choose at most one cover image.', tab: 'images', fieldId: 'cover-image' }
   }
   const galleryCount = form.images.filter((image) => image.role === 'GALLERY').length
   if (galleryCount > MAX_GALLERY_IMAGES) {
-    return `A product may have at most ${MAX_GALLERY_IMAGES} gallery images.`
+    return {
+      message: `A product may have at most ${MAX_GALLERY_IMAGES} gallery images.`,
+      tab: 'images',
+      fieldId: 'gallery-image',
+    }
   }
 
   return null
@@ -725,6 +755,20 @@ export default function ProductEditorPage() {
    */
   const currentPayloadKey = useMemo(() => JSON.stringify(toSavePayload(form)), [form])
   const isDirty = savedPayloadKey !== null && currentPayloadKey !== savedPayloadKey
+
+  // Navigation protection for unsaved work, as owned by docs/specs/08-FRONTEND.md.
+  useEffect(() => {
+    if (!isDirty) {
+      return
+    }
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', warnBeforeUnload)
+    }
+  }, [isDirty])
 
   // Private draft assets are only fetched while the Preview tab is actually on screen.
   const previewImageAssetIds = useMemo(
@@ -1081,9 +1125,15 @@ export default function ProductEditorPage() {
       setSaveError('The current draft revision is unavailable. Refetch the product and try again.')
       return
     }
-    const validationError = validateForm(form)
-    if (validationError !== null) {
-      setSaveError(validationError)
+    const validationFailure = validateForm(form)
+    if (validationFailure !== null) {
+      setSaveError(validationFailure.message)
+      // Reveal the tab that owns the problem and put the cursor in the field itself, which
+      // may have been hidden when the save was attempted.
+      setTab(validationFailure.tab)
+      window.setTimeout(() => {
+        document.getElementById(validationFailure.fieldId)?.focus()
+      }, 0)
       return
     }
 
@@ -1141,6 +1191,13 @@ export default function ProductEditorPage() {
       setPublishError(
         'Save the draft before publishing, so the published revision is the one you reviewed.',
       )
+      return
+    }
+
+    // A publish must never race an in-flight upload: the upload lands after the revision
+    // was claimed, so the newly attached asset would arrive as an unsaved change.
+    if (isUploading) {
+      setPublishError('An asset upload is still in progress. Wait for it to finish.')
       return
     }
 
@@ -1290,6 +1347,14 @@ export default function ProductEditorPage() {
             <Link
               href="/products"
               className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+              onClick={(event) => {
+                if (
+                  isDirty &&
+                  !window.confirm('Discard your unsaved changes and leave the editor?')
+                ) {
+                  event.preventDefault()
+                }
+              }}
             >
               Back to products
             </Link>
@@ -1344,6 +1409,14 @@ export default function ProductEditorPage() {
 
         <EditorTabList tab={tab} onSelect={setTab} />
 
+        {/* Rendered outside the panels: an upload can start on the Images, Documents and
+            Certifications tabs, and a failure must be visible from whichever one is open. */}
+        {uploadError !== null ? (
+          <p role="alert" data-testid="upload-error" className="alert alert-error mt-4">
+            {uploadError}
+          </p>
+        ) : null}
+
         {publishError !== null ? (
           <p className="alert alert-error mt-4" role="alert" data-testid="publish-error">
             {publishError}
@@ -1374,7 +1447,7 @@ export default function ProductEditorPage() {
           </div>
         ) : null}
 
-        <form className="mt-6 space-y-6" onSubmit={handleSave}>
+        <form className="mt-6 space-y-6" onSubmit={handleSave} noValidate>
           <section
             role="tabpanel"
             id="panel-general"
@@ -2148,12 +2221,6 @@ export default function ProductEditorPage() {
                 </p>
               </div>
 
-              {uploadError !== null ? (
-                <p role="alert" className="text-sm text-error">
-                  {uploadError}
-                </p>
-              ) : null}
-
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="form-control">
                   <label className="label" htmlFor="cover-image">
@@ -2321,7 +2388,11 @@ export default function ProductEditorPage() {
             <div className="text-sm text-base-content/70">
               <p>Save sends revision {draftRevision ?? '—'}.</p>
               <p className="mt-1 text-xs" data-testid="dirty-state">
-                {isDirty ? 'Unsaved changes — save before publishing.' : 'No unsaved changes.'}
+                {isUploading
+                  ? 'Upload in progress — wait for it to finish before publishing.'
+                  : isDirty
+                    ? 'Unsaved changes — save before publishing.'
+                    : 'No unsaved changes.'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -2344,6 +2415,7 @@ export default function ProductEditorPage() {
                   isPublishing ||
                   isSaving ||
                   isLoading ||
+                  isUploading ||
                   isDirty ||
                   conflict !== null ||
                   draftRevision === null

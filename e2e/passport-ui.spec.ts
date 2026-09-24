@@ -36,6 +36,11 @@ startxref
   'latin1',
 )
 
+const SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>',
+  'utf8',
+)
+
 type CreatedProduct = {
   id: string
   draftRevision: number
@@ -620,5 +625,110 @@ test.describe('draft preview and publishing', () => {
       () => document.documentElement.scrollWidth - window.innerWidth,
     )
     expect(overflow).toBeLessThanOrEqual(1)
+  })
+})
+
+test.describe('editor safety', () => {
+  test('does not attempt a session restore for an anonymous public passport view', async ({
+    browser,
+    request,
+  }) => {
+    const token = await apiToken(request)
+    const created = await createCompleteProduct(request, token, 'E2E Anonymous No Restore')
+    const { publicUuid } = await publish(request, token, created.id, created.draftRevision)
+
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    const refreshCalls: string[] = []
+    page.on('request', (outgoing) => {
+      if (outgoing.url().includes('/auth/refresh')) {
+        refreshCalls.push(outgoing.url())
+      }
+    })
+
+    await page.goto(`/passport/${publicUuid}`)
+    await expect(page.getByTestId('passport-product-name')).toBeVisible()
+    // Give any deferred restore a chance to fire before concluding there was none: a
+    // refresh here would rotate the browser-wide cookie on a page that never reads it.
+    await page.waitForTimeout(750)
+
+    expect(refreshCalls).toEqual([])
+    await context.close()
+  })
+
+  test('reveals the tab that owns an invalid field instead of failing silently', async ({
+    page,
+    request,
+  }) => {
+    const token = await apiToken(request)
+    const created = await createCompleteProduct(request, token, 'E2E Validation Tab')
+    await signIn(page)
+    await page.goto(`/products/${created.id}`)
+
+    // Make the General panel invalid, then move away from it so the field is hidden when
+    // the save is attempted.
+    await page.fill('#origin-country', 'U')
+    await page.getByTestId('editor-tab-materials').click()
+    await expect(page.locator('#panel-general')).toBeHidden()
+
+    await page.getByRole('button', { name: /save draft/i }).click()
+
+    await expect(page.getByText('origin country must be a two-letter country code.')).toBeVisible()
+    await expect(page.getByTestId('editor-tab-general')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('#origin-country')).toBeFocused()
+
+    // A blocked save must not have reached the API.
+    expect(await revisionOf(request, token, created.id)).toBe(created.draftRevision)
+  })
+
+  test('shows an upload failure from the tab that started it', async ({ page, request }) => {
+    const token = await apiToken(request)
+    const created = await createCompleteProduct(request, token, 'E2E Upload Error Tab')
+    await signIn(page)
+    await page.goto(`/products/${created.id}`)
+
+    // Documents is not the tab that owns the upload-error markup, so this proves the alert
+    // is no longer trapped inside the Images panel.
+    await page.getByTestId('editor-tab-documents').click()
+    await page.setInputFiles('#document-upload-MANUAL', {
+      name: 'diagram.svg',
+      mimeType: 'image/svg+xml',
+      buffer: SVG,
+    })
+
+    const uploadError = page.getByTestId('upload-error')
+    await expect(uploadError).toBeVisible({ timeout: 15_000 })
+    await expect(uploadError).toContainText(/unsupported file type/i)
+  })
+
+  test('blocks publishing while an upload is still in flight', async ({ page, request }) => {
+    const token = await apiToken(request)
+    const created = await createCompleteProduct(request, token, 'E2E Upload Publish Guard')
+    await signIn(page)
+    await page.goto(`/products/${created.id}`)
+    await expect(page.getByTestId('publish-button')).toBeEnabled()
+
+    // Hold the upload open so the guard can be observed while it is genuinely in flight.
+    await page.route('**/assets', async (route) => {
+      if (route.request().method() === 'POST') {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+      await route.continue()
+    })
+
+    await page.getByTestId('editor-tab-images').click()
+    await page.setInputFiles('#gallery-image', {
+      name: 'gallery.png',
+      mimeType: 'image/png',
+      buffer: PNG_1X1,
+    })
+
+    await expect(page.getByTestId('dirty-state')).toContainText('Upload in progress')
+    await expect(page.getByTestId('publish-button')).toBeDisabled()
+
+    // Once the upload lands it is the unsaved change, not the upload, that blocks publishing.
+    await expect(page.getByTestId('dirty-state')).toContainText('Unsaved changes', {
+      timeout: 20_000,
+    })
   })
 })
