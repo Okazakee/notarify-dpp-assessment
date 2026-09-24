@@ -460,6 +460,9 @@ describe('Asset upload and private retrieval', () => {
     expect(downloaded.status).toBe(200)
     expect(downloaded.headers['content-type']).toBe('image/png')
     expect(downloaded.headers['x-content-type-options']).toBe('nosniff')
+    // The private asset route keeps the strict same-origin policy: only the deliberately
+    // public published-asset and QR routes opt into cross-origin embedding.
+    expect(downloaded.headers['cross-origin-resource-policy']).toBe('same-origin')
     expect(downloaded.headers['content-length']).toBe(String((downloaded.body as Buffer).length))
     expect(downloaded.headers['content-disposition']).toContain('inline')
 

@@ -54,12 +54,26 @@ export function writeBinaryResponse(
     originalName: string
     disposition: 'inline' | 'attachment'
     cacheControl?: string
+    /**
+     * `Cross-Origin-Resource-Policy` for this response.
+     *
+     * Helmet's global default is `same-origin`, which is right for the authenticated asset
+     * route but wrong for a deliberately public one: a published passport is meant to be
+     * rendered by the web origin, which is not necessarily the API origin. An `img` loading
+     * a cross-origin `same-origin` resource is refused by the browser outright, so the
+     * public binary routes opt in explicitly instead of relying on a global relaxation.
+     */
+    crossOriginResourcePolicy?: 'same-origin' | 'cross-origin'
   },
 ): void {
   response.setHeader('Content-Type', options.contentType)
   response.setHeader('Content-Length', String(body.length))
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Cache-Control', options.cacheControl ?? 'no-store')
+  response.setHeader(
+    'Cross-Origin-Resource-Policy',
+    options.crossOriginResourcePolicy ?? 'same-origin',
+  )
   response.setHeader(
     'Content-Disposition',
     contentDisposition(options.originalName, options.disposition),
