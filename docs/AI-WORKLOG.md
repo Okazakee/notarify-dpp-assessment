@@ -691,3 +691,23 @@ Recorded as observations rather than defects: the view advertises a QR target de
 **Not validated / deferred.** Physical phone scan, Cristian's manual/source-code review, deployment, and Stage 4.4/PDF/analytics remain outstanding. The generic Next `PASSPORT_UNAVAILABLE` page still returns HTTP 200 without exposing controlled backend failure or stored snapshot; redesigning its status/error boundary was expressly excluded from this round.
 
 **Result.** Preview simulates how the current draft will look when published while remaining explicitly identified as unpublished editor content. No Preview publication side effect or public draft-asset exposure is allowed; publication continues to require explicit republish. The branch awaits Cristian's Gate 7 decision and remains unmerged.
+
+---
+
+## 2026-09-24 — Stage 4.3 integration (Gate 8)
+
+**Scope.** Integrate Cristian's accepted `build/passport-ui` tip `a728865e2ccf4c2888878599d53ad19fb665a9ae` into `main` without changing application behavior. Reconcile only current-state prose made false by the merge and append integration evidence. No Stage 4.4 branch or implementation, PDF, analytics, Redis, schema or migration change is authorized.
+
+**AI participation.** Pi performed the remote-ref and CI preflight, the merge, the verification and this documentation reconciliation. No subagent was used in this Gate 8 round. The external ChatGPT / GPT-5.6 Sol contribution to the preceding Gate 7 correction remains recorded in that round; this entry makes no claim of further external model work.
+
+**Human review.** Decision/scope review: Cristian explicitly approved the exact Stage 4.3 tip for a `--no-ff` merge and specified the preserve list and deferred limitations. Manual validation: not performed by Cristian, including no physical phone scan. Source-code review: still deferred until the completed project is built. Acceptance of the milestone is a decision, not human source-code review.
+
+**Decisions / work performed.** No product or architecture decision changed. Fetched origin; required `origin/main` at `5cbf826806fba64f93af746b8d106a2db6bc08e3`, `origin/build/passport-ui` at the accepted tip, a clean worktree, zero unexpected divergence (0 behind / 14 ahead), and final correction commit `a728865e` changing only `docs/AI-WORKLOG.md` from its parent. Required branch CI run `36046019904` to have succeeded on that exact tip. Switched to synchronized `main`; merged with `git merge --no-ff build/passport-ui` as `b925a856147152c560dd26488a5f71b150b74879` (parents: previous main and accepted tip); pushed main without deleting the milestone branch. Required CI run `36049440655` to complete successfully with `head_sha` equal to the merge commit. Re-read current documents; reconciled the present-state status in `AGENTS.md`, README, the roadmap and section B9 of the decisions record. The public Passport and frontend specs require no merge-induced change. Historical Stage 4.3 worklog rounds were not rewritten.
+
+**Findings / rejected approaches.** The four current-state statements still described Stage 4.3 as on an unmerged branch or awaiting acceptance; these became false at the merge. Rejected: squashing/rebasing or changing accepted application code, treating branch CI as proof of integration CI, and deleting the branch before final-main CI. The accepted `PASSPORT_UNAVAILABLE` HTTP-200 observation, absent real-phone scan, missing caching/rate limiting and cross-tab refresh coordination remain deferred; none is silently presented as resolved.
+
+**Validation evidence.** The accepted tip was reachable from the merge commit by its second parent; the merge commit was pushed and CI run `36049440655` completed with `success` on the exact SHA `b925a856147152c560dd26488a5f71b150b74879`. The pre-push hook ran `pnpm check` successfully on the merge commit (6 integration suites / 110 tests); this does not replace independent CI. Final-HEAD CI after the documentation-only reconciliation and branch deletion are not claimed here and must be verified before the Gate 8 completion report.
+
+**Not validated / deferred.** No physical phone QR scan or Cristian manual UI validation, no human source-code review, no deployment/VPS check. No Stage 4.4 back-office Passports/version history, PDF or analytics was implemented.
+
+**Result.** Stage 4.3 is merged into `main`, with accepted published-version isolation, shared public/Preview presentation, simulated qualified verification under unpublished editor chrome, seven tabs, explicit saved-revision publishing, and private draft assets retained. Final-main CI and branch cleanup remain separate Gate 8 evidence.

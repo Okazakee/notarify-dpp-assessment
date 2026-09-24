@@ -166,7 +166,7 @@ Recorded 2026-09-23 and implemented, merged into `main`.
 
 ### B9. Public Passport UI, editor Preview and Publish UX (Stage 4.3)
 
-Recorded 2026-09-24 and implemented on `build/passport-ui`.
+Recorded 2026-09-24, implemented on `build/passport-ui` and merged into `main` after Cristian's acceptance.
 
 | Decision | Value |
 | --- | --- |
