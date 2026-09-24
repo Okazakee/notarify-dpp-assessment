@@ -4,7 +4,7 @@
 
 `PassportView` is the explicit public projection. The public page and editor preview render the same React presentation component. Preview receives a projected draft through a protected API; public rendering receives the current published snapshot. The preview's draft indication belongs in surrounding editor chrome, not a different passport template.
 
-**Update 2026-09-24:** Stage 4.3 implemented preview deliberately differently, and the difference is settled rather than pending. Preview renders the **current editor state** — unsaved changes included — through the same presentation component and the same public field mapping, built client-side from `ProductEditorForm`; no protected draft-projection endpoint was added and `packages/api-client` stayed empty. Public rendering is unchanged: the current immutable published snapshot. Both surfaces therefore share one structure, one section order, one set of labels and one field formatting; only the data source and the resolved asset URLs differ. See section B9 of `docs/IMPLEMENTATION-DECISIONS.md`.
+**Update 2026-09-24:** Stage 4.3 implemented preview deliberately differently, and the difference is settled rather than pending. Preview renders the **current editor state** — unsaved changes included — through the same presentation component and the same public field mapping, built client-side from `ProductEditorForm`; no protected draft-projection endpoint was added and `packages/api-client` stayed empty. Public rendering is unchanged: the current immutable published snapshot. Both surfaces share one structure, section order, labels and field formatting. The draft adapter simulates the eventual Published / prototype Verified presentation, including its qualified badge, while the editor-only banner identifies the content as unpublished. Before first publication UUID, creation date, version and last published date are placeholders; public URL and QR download are unavailable. Known metadata from an actual publication may be shown, but Preview never invents a next version or performs a publication write. See sections B9 and B10 of `docs/IMPLEMENTATION-DECISIONS.md`.
 
 PDF uses the same view data but an independently designed print layout. Exact HTML/PDF visual parity is not promised or required.
 
@@ -21,7 +21,7 @@ PDF uses the same view data but an independently designed print layout. Exact HT
 | Images | Cover and gallery |
 | Passport metadata | UUID, creation date, version, status and verification status |
 
-The page is responsive and readable without authentication. Core published content should render without client JavaScript; analytics enhancement can be separate. Historical versions are back-office-only in the proposed scope.
+The page is responsive and readable without authentication. Core published content should render without client JavaScript; analytics enhancement can be separate. Historical versions are back-office-only by recorded decision (B10); anonymous routes expose only the current version, with no public historical-version route planned.
 
 ## QR decision
 

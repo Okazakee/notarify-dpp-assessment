@@ -65,7 +65,7 @@ Not implemented, and not to be assumed: product delete/withdraw, the back-office
 
 - The web `/passport/:uuid` page is anonymous and server-rendered from the API's `PassportView`: the published product name and passport metadata are in the returned HTML, not assembled after hydration. It reads no authenticated product or draft endpoint.
 - The public page and the editor Preview render **one** presentation component from one display model. A second, visually similar implementation is not acceptable.
-- Preview renders the **current editor state**, unsaved changes included, and never the current published version. It is wrapped in editor-only chrome and never presented as published or verified.
+- Preview renders the **current editor state**, unsaved changes included, and never the current published version. The shared Passport simulates eventual Published / prototype Verified presentation, while editor-only chrome clearly labels it unpublished. UUID, version and dates remain placeholders where not yet known; Preview never publishes.
 - Draft assets stay private: Preview images are fetched through the authenticated `GET /assets/:id` route into `blob:` object URLs, which are always revoked. Public asset URLs always resolve to the published-asset route on the configured API origin, never to `/assets/:id`.
 - Publishing requires a clean, saved draft. Unsaved changes, an in-flight upload or an unresolved stale revision block Publish/Republish instead of being published implicitly, and the publish body carries only `expectedDraftRevision`.
 - The editor has exactly seven tabs — General Information, Materials, Sustainability, Certifications, Documents, Images, Preview — with roving tabindex and arrow/Home/End navigation. Switching tabs never saves and never loses entered data, and a blocked save reveals the tab that owns the invalid field.
@@ -106,9 +106,9 @@ Rules:
 
 **Recorded and implemented:** publishing is **not** Admin-only. An Editor may publish and republish. `POST /products/:id/publish` is deliberately role-agnostic: it requires an authenticated actor, and no code gates publish to `ADMIN`.
 
-Still open: permission semantics beyond publishing, published-edit visibility, analytics definitions and retention, session lifetimes, audit retention. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
+Still open: permission semantics beyond publishing, analytics definitions and retention, session lifetimes, audit retention. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
 
-Settled and recorded, so do not re-open them from a spec: **verification badge meaning** is a prototype/application-level indicator on an active published passport, with no review or approval subsystem required (`PassportReview` may stay unused infrastructure), and **historical-version visibility** is back-office only with no public historical route. **File limits** are locked and implemented — see section B5 of `docs/IMPLEMENTATION-DECISIONS.md`.
+Settled and recorded, so do not re-open them from a spec: **published-edit visibility** (unsaved and saved edits remain private until explicit republish; stable UUID/QR), **verification badge meaning** is a prototype/application-level indicator on an active published passport, with no review or approval subsystem required (`PassportReview` may stay unused infrastructure), and **historical-version visibility** is back-office only with no public historical route. **File limits** are locked and implemented — see section B5 of `docs/IMPLEMENTATION-DECISIONS.md`.
 
 - Do not implement a proposal as settled fact, and do not silently choose between materially different options.
 - Surface the unresolved decision, state the options and trade-offs, and get it recorded before building on it.

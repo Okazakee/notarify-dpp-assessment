@@ -63,10 +63,10 @@ export function toDraftPresentationModel(input: DraftPreviewInput): PassportPres
       creationDate: publication?.creationDate ?? null,
       version: publication?.version ?? null,
       publishedAt: publication?.publishedAt ?? null,
-      // The previewed content is the editor's unpublished state, so it is never presented as
-      // published or verified even when the product already has a published version.
-      status: 'DRAFT',
-      verificationStatus: null,
+      // Simulate the eventual public presentation; the editor-only banner identifies this
+      // content as an unpublished draft. These values never create publication records.
+      status: 'PUBLISHED',
+      verificationStatus: 'VERIFIED',
       publicUrl: publication?.publicUrl ?? null,
       qrDownloadUrl: null,
     },

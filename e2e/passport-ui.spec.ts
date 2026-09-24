@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
+import { Client } from 'pg'
 import { E2E_EMAIL, E2E_PASSWORD } from './global-setup.ts'
 
 /**
@@ -328,6 +329,58 @@ test.describe('public passport page', () => {
 })
 
 test.describe('draft preview and publishing', () => {
+  test('simulates eventual public presentation before publication without creating a passport', async ({
+    page,
+    request,
+  }) => {
+    const token = await apiToken(request)
+    const created = await createCompleteProduct(request, token, 'E2E Unpublished Preview')
+    await signIn(page)
+    await page.goto(`/products/${created.id}`)
+    await page.getByTestId('editor-tab-preview').click()
+
+    const preview = page.getByTestId('preview-panel')
+    await expect(page.getByTestId('preview-banner')).toContainText('unpublished editor state')
+    await expect(preview.getByTestId('passport-product-name')).toHaveText('E2E Unpublished Preview')
+    await expect(preview.getByTestId('passport-status')).toHaveText('Published')
+    await expect(preview.getByTestId('verification-badge')).toHaveText('Verified Product')
+    await expect(
+      preview.getByText('Prototype/application-level indicator only.', { exact: false }),
+    ).toBeVisible()
+    await expect(preview.getByText('Assigned on first publication')).toBeVisible()
+    await expect(preview.getByText('Set on first publication')).toHaveCount(2)
+    await expect(preview.getByText('Not published yet')).toBeVisible()
+    await expect(preview.getByTestId('passport-uuid')).toHaveCount(0)
+    await expect(preview.getByTestId('passport-public-link')).toHaveCount(0)
+    await expect(preview.getByTestId('passport-qr-download')).toHaveCount(0)
+
+    const productResponse = await request.get(`${API}/products/${created.id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(productResponse.status()).toBe(200)
+    const product = await productResponse.json()
+    expect(product.status).toBe('DRAFT')
+    expect(product.draftRevision).toBe(created.draftRevision)
+
+    const databaseUrl = process.env.DATABASE_URL
+    if (!databaseUrl) throw new Error('DATABASE_URL is required for the no-publication proof')
+    const client = new Client({ connectionString: databaseUrl })
+    await client.connect()
+    try {
+      const { rows } = await client.query<{ passports: number; versions: number }>(
+        `SELECT count(p.id)::int AS passports, count(v.id)::int AS versions
+         FROM "Product" product
+         LEFT JOIN "Passport" p ON p."productId" = product.id
+         LEFT JOIN "PassportVersion" v ON v."passportId" = p.id
+         WHERE product.id = $1`,
+        [created.id],
+      )
+      expect(rows).toEqual([{ passports: 0, versions: 0 }])
+    } finally {
+      await client.end()
+    }
+  })
+
   test('keeps the public passport on v1 while Preview shows the unsaved draft, until republish', async ({
     page,
     request,
@@ -358,10 +411,19 @@ test.describe('draft preview and publishing', () => {
     await expect(page.getByTestId('preview-panel').getByTestId('passport-product-name')).toHaveText(
       'E2E Isolation v2',
     )
-    // Preview shows the draft as such, and never claims to be published.
+    // Editor chrome identifies the candidate as unpublished; the shared Passport simulates
+    // the eventual public presentation while the current public page still shows v1.
     await expect(page.getByTestId('preview-panel').getByTestId('passport-status')).toHaveText(
-      'Draft — not published',
+      'Published',
     )
+    await expect(page.getByTestId('preview-panel').getByTestId('verification-badge')).toHaveText(
+      'Verified Product',
+    )
+    await expect(
+      page
+        .getByTestId('preview-panel')
+        .getByText('Prototype/application-level indicator only.', { exact: false }),
+    ).toBeVisible()
 
     // The public page is untouched by an unsaved edit.
     const afterUnsavedEdit = await publicHtml(request, publicUuid)
@@ -574,8 +636,31 @@ test.describe('draft preview and publishing', () => {
     const created = await createCompleteProduct(request, token, 'E2E Preview Privacy')
     const { publicUuid } = await publish(request, token, created.id, created.draftRevision)
 
-    // An asset that exists in the company but was never attached or published.
+    // Attach a new draft-only gallery image after v1 without republishing it.
     const unpublishedAsset = await upload(request, token, 'private.png', 'image/png', PNG_1X1)
+    const detail = await request.get(`${API}/products/${created.id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(detail.status()).toBe(200)
+    const product = await detail.json()
+    const saved = await request.patch(`${API}/products/${created.id}`, {
+      headers: { authorization: `Bearer ${token}` },
+      data: {
+        expectedDraftRevision: created.draftRevision,
+        images: [
+          ...product.images.map(
+            (image: { assetId: string; role: string; altText: string | null }) => ({
+              assetId: image.assetId,
+              role: image.role,
+              altText: image.altText,
+            }),
+          ),
+          { assetId: unpublishedAsset, role: 'GALLERY', altText: 'Unpublished gallery' },
+        ],
+      },
+    })
+    expect(saved.status()).toBe(200)
+    const draftRevision = (await saved.json()).draftRevision as number
 
     await signIn(page)
     await page.goto(`/products/${created.id}`)
@@ -587,8 +672,12 @@ test.describe('draft preview and publishing', () => {
     await expect(previewCover).toBeVisible()
     await expect.poll(async () => previewCover.getAttribute('src')).toMatch(/^blob:/)
 
+    const draftGallery = page.getByTestId('preview-panel').getByAltText('Unpublished gallery')
+    await expect(draftGallery).toBeVisible()
+    await expect.poll(async () => draftGallery.getAttribute('src')).toMatch(/^blob:/)
+
     // The private asset route still requires authentication.
-    const anonymous = await request.get(`${API}/assets/${created.coverAssetId}`)
+    const anonymous = await request.get(`${API}/assets/${unpublishedAsset}`)
     expect(anonymous.status()).toBe(401)
 
     // A draft-only asset is not reachable through the public published-asset route.
@@ -598,7 +687,7 @@ test.describe('draft preview and publishing', () => {
     expect(publicAttempt.status()).toBe(404)
 
     // Preview reads the draft; it never writes to it.
-    expect(await revisionOf(request, token, created.id)).toBe(created.draftRevision)
+    expect(await revisionOf(request, token, created.id)).toBe(draftRevision)
   })
 
   test('renders the public passport on a phone viewport without horizontal overflow', async ({

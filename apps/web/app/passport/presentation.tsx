@@ -558,9 +558,13 @@ function PassportInformationSection({
             <span className="text-base-content/50">Not applicable before publication</span>
           )}
         </Field>
-        {hasText(passport.publishedAt) ? (
-          <Field label="Last published">{formatPassportDate(passport.publishedAt)}</Field>
-        ) : null}
+        <Field label="Last published">
+          {hasText(passport.publishedAt) ? (
+            formatPassportDate(passport.publishedAt)
+          ) : (
+            <span className="text-base-content/50">Set on first publication</span>
+          )}
+        </Field>
       </dl>
 
       {published && (hasText(passport.publicUrl) || hasText(passport.qrDownloadUrl)) ? (
