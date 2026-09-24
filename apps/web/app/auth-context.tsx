@@ -43,7 +43,9 @@ type AuthContextValue = {
   request: (path: string, init?: RequestInit) => Promise<Response>
 }
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+import { API_ORIGIN } from './api-origin'
+
+const API_URL = API_ORIGIN
 const REQUEST_TIMEOUT_MS = 10_000
 
 class AuthRequestError extends Error {
