@@ -92,25 +92,27 @@ const EDITOR_TABS: Array<{ id: EditorTab; label: string }> = [
 
 /**
  * Maps a publication gap named by the API onto the tab that owns that field.
- *
- * Ordered most-specific first: a gap such as "certification 1 name" must resolve to
- * Certifications, not to the General Information rule that also matches `name`.
  */
-const PUBLICATION_GAP_TABS: Array<{ match: RegExp; tab: EditorTab }> = [
-  { match: /certification/i, tab: 'certifications' },
-  { match: /material/i, tab: 'materials' },
-  { match: /sustainability/i, tab: 'sustainability' },
-  { match: /cover image/i, tab: 'images' },
-  {
-    match: /name|sku|serial|category|description|production date|country of origin/i,
-    tab: 'general',
-  },
-]
-
 function firstTabForPublicationGaps(message: string): EditorTab | null {
-  for (const rule of PUBLICATION_GAP_TABS) {
-    if (rule.match.test(message)) {
-      return rule.tab
+  // The first gap the API reports is the most relevant one to show the operator, so the
+  // tab is chosen from the first fragment rather than from the first matching rule.
+  const fragments = message.replace(/^[^:]*:\s*/, '').split(';')
+
+  for (const fragment of fragments) {
+    if (/certification/i.test(fragment)) {
+      return 'certifications'
+    }
+    if (/material/i.test(fragment)) {
+      return 'materials'
+    }
+    if (/sustainability/i.test(fragment)) {
+      return 'sustainability'
+    }
+    if (/cover image/i.test(fragment)) {
+      return 'images'
+    }
+    if (/name|sku|serial|category|description|production date|country of origin/i.test(fragment)) {
+      return 'general'
     }
   }
   return null
@@ -744,11 +746,10 @@ export default function ProductEditorPage() {
         // The account exposes no company display name to the editor, so Preview is explicit
         // that this line is a placeholder rather than a real brand value.
         brandDisplayName: 'Your company name',
-        status: productStatus,
         publication,
         imageSrcs: previewImageSrcs,
       }),
-    [form, previewCategoryName, productStatus, publication, previewImageSrcs],
+    [form, previewCategoryName, publication, previewImageSrcs],
   )
 
   const nextClientId = useCallback((prefix: string): string => {
@@ -2291,27 +2292,29 @@ export default function ProductEditorPage() {
               tab === 'preview' ? '' : 'hidden'
             }`}
           >
-            <div className="card-body gap-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 id="preview-heading" className="card-title">
-                  Preview
-                </h2>
-                <span className="badge badge-warning badge-sm" data-testid="preview-banner">
-                  Draft preview — unpublished editor state
-                </span>
+            {tab === 'preview' ? (
+              <div className="card-body gap-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 id="preview-heading" className="card-title">
+                    Preview
+                  </h2>
+                  <span className="badge badge-warning badge-sm" data-testid="preview-banner">
+                    Draft preview — unpublished editor state
+                  </span>
+                </div>
+                <p className="text-sm text-base-content/70">
+                  This renders the current editor contents through the same presentation component
+                  the public passport page uses. It includes changes you have not saved yet, and it
+                  is not the published passport.
+                </p>
+                <div
+                  className="rounded-box border border-base-300 bg-base-200 p-4"
+                  data-testid="preview-panel"
+                >
+                  <PassportPresentation model={previewModel} />
+                </div>
               </div>
-              <p className="text-sm text-base-content/70">
-                This renders the current editor contents through the same presentation component the
-                public passport page uses. It includes changes you have not saved yet, and it is not
-                the published passport.
-              </p>
-              <div
-                className="rounded-box border border-base-300 bg-base-200 p-4"
-                data-testid="preview-panel"
-              >
-                <PassportPresentation model={previewModel} />
-              </div>
-            </div>
+            ) : null}
           </section>
 
           <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-box border border-base-300 bg-base-100/95 p-4 shadow-lg backdrop-blur">

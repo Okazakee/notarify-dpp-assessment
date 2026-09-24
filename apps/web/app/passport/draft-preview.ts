@@ -48,7 +48,6 @@ export type DraftPreviewInput = {
   categoryName: string | null
   /** Preview brand placeholder: the account exposes no company display name to the editor. */
   brandDisplayName: string
-  status: 'DRAFT' | 'PUBLISHED'
   /** Known published passport metadata, available once the editor has published in this session. */
   publication: DraftPreviewPublication | null
   /** Authenticated object URLs for the draft's image assets, keyed by asset id. */
@@ -64,8 +63,10 @@ export function toDraftPresentationModel(input: DraftPreviewInput): PassportPres
       creationDate: publication?.creationDate ?? null,
       version: publication?.version ?? null,
       publishedAt: publication?.publishedAt ?? null,
-      status: input.status,
-      verificationStatus: publication === null ? null : 'VERIFIED',
+      // The previewed content is the editor's unpublished state, so it is never presented as
+      // published or verified even when the product already has a published version.
+      status: 'DRAFT',
+      verificationStatus: null,
       publicUrl: publication?.publicUrl ?? null,
       qrDownloadUrl: null,
     },

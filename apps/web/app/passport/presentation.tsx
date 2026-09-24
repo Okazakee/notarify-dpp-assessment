@@ -129,7 +129,11 @@ export function formatPassportDate(value: string | null): string | null {
 /** Formats a quantity with a pinned locale so server and client markup agree. */
 export function formatQuantity(value: number, unit: string, maximumFractionDigits: number): string {
   const formatted = new Intl.NumberFormat('en-US', { maximumFractionDigits }).format(value)
-  return unit.length === 0 ? formatted : `${formatted} ${unit}`
+  if (unit.length === 0) {
+    return formatted
+  }
+  // Percentages read as "40%"; every other unit is spaced ("12.5 kg CO₂e").
+  return unit === '%' ? `${formatted}%` : `${formatted} ${unit}`
 }
 
 function hasText(value: string | null): value is string {
