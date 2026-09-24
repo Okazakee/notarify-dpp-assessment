@@ -46,4 +46,6 @@ Do not label a plain substring filter as the full-text-search bonus. Keep Prisma
 
 An Editor can create an incomplete draft, upload files, populate every tab, save and reopen it. Invalid percentages, mismatched ownership, unsupported files and stale edits fail safely. An Editor or an Admin can publish it, find it through filters/search, and an Admin can soft-delete it without removing history. Drag-and-drop and the keyboard-accessible file picker use the same upload contract.
 
-**Update 2026-09-21:** the earlier wording of this acceptance line implied publication was Admin-only. It is not: the recorded project decision lets an Editor publish and republish (see section B2 of `docs/IMPLEMENTATION-DECISIONS.md`). Publication is not implemented yet in any case.
+**Update 2026-09-21:** the earlier wording of this acceptance line implied publication was Admin-only. It is not: the recorded project decision lets an Editor publish and republish (see section B2 of `docs/IMPLEMENTATION-DECISIONS.md`).
+
+**Update 2026-09-23:** publication core is now implemented and merged — see section B7 of `docs/IMPLEMENTATION-DECISIONS.md`. The anonymous public projection, published-asset downloads, QR download and QR redirect are Stage 4.2; the public page, version history and PDF export remain later Stage 4 milestones.

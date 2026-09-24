@@ -8,7 +8,9 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **The Assets slice is merged into `main`.** Validated binary upload with private retrieval, and product draft attachments as cover and gallery images, typed documents and certification PDFs, are implemented and verified on `main`.
 
-**Stage 4.1 (publication core) is merged into `main`.** The remaining Stage 4 milestones and everything downstream are not implemented.
+**Stage 4.1 (publication core) is merged into `main`.**
+
+**Stage 4.2 (public passport API, published assets and QR) is implemented on `build/public-passport-api` and is not yet merged.** It awaits Cristian's acceptance. The public passport page and the remaining Stage 4 milestones are not implemented.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -17,10 +19,11 @@ Implemented:
   - Catalog: `GET /categories`, `POST /products`, `GET /products` (bounded pagination, category/country/date filters, PostgreSQL full-text search), `GET /products/:id`, `PATCH /products/:id` with atomic `draftRevision` concurrency.
   - Assets: `POST /assets` (one file per request, `multipart/form-data`) and `GET /assets/:id`. Content is identified from its bytes with `file-type` 22.1.1; images are decoded and re-encoded with `sharp` 0.35.4, which strips metadata and bounds decoded pixels. Bytes live in PostgreSQL `AssetContent.bytea`. Retrieval is private and scoped to the caller's company in the query itself.
   - Publication: `POST /products/:id/publish` creates the stable Passport identity, an immutable `PassportVersion`, its retained `PassportVersionAsset` references and the QR artifact in one transaction. QR rendering uses `qrcode` 1.5.4. Publication writes **no** `AuditEvent`; the audit-log bonus is a separate milestone.
+  - Public passport (anonymous, no guard): `GET /passport/:uuid` projects the current immutable published version; `GET /passport/:uuid/assets/:assetId` serves bytes retained by that version; `GET /passport/:uuid/qr.png` serves the stored QR artifact; `GET /q/:uuid` resolves a scan with a 302 to the canonical page. The web app bridges `/q/:uuid` to the API with a single-segment rewrite.
 - **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, the public passport page and its API, public asset visibility or downloads, the QR redirect and download surface, Passport PDF export, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
+Not implemented, and not to be assumed: product delete/withdraw, the visual public passport page, Passport PDF export, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
 
 ### Proven asset invariants — do not weaken
 
@@ -44,7 +47,19 @@ Not implemented, and not to be assumed: product delete/withdraw, the public pass
 - The QR target origin comes from validated `PUBLIC_APP_ORIGIN` configuration, never from a client-supplied `Host` header.
 - Publication prerequisites never block a draft save, and the company logo is not a prerequisite: the public passport's brand logo is satisfied by a bundled application asset.
 
-Verified on 2026-09-23 on this branch: `pnpm check` passes (72 files linted with no diagnostics, both workspaces typecheck and build, 5 integration suites with 89 of 89 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 9 of 9 against the built stack; `pnpm audit` reports no known vulnerabilities.
+### Proven public-surface invariants — do not weaken
+
+- Anonymous reads use the current **immutable** published version only. Live draft rows never contribute content; `Product.deletedAt` participates solely as a visibility filter.
+- A draft edit does not change the public projection until an explicit republish. Publishing again moves the projection to the new version.
+- A public asset download requires a retained reference from the **current active** version, so an asset only an older version referenced becomes private again after a republish even though its history is retained. Draft-only, unattached and foreign-company assets are never public.
+- The retained `PassportVersionAsset` row authorizes retention and download only. It never reconstructs semantic role or ordering: it is keyed `(versionId, assetId)`, so one asset used in two roles has a single row and the snapshot stays the authority.
+- Every anonymous failure — malformed UUID, unknown, unpublished, withdrawn, deleted, unauthorized asset — returns one identical 404 body, so the surface cannot be used to learn whether a passport or asset exists.
+- QR bytes are generated once and never regenerated, so a printed code keeps working across republishes. A QR download is not a scan and records nothing.
+- The `/q/:uuid` redirect target comes from validated `PUBLIC_APP_ORIGIN` plus the stored UUID, never from the request `Host` header.
+- Every public response is `no-store`; there is no public caching yet.
+- The web `/q/:uuid` bridge is a single-segment rewrite to the configured API origin, so it cannot proxy arbitrary paths or hosts.
+
+Verified on 2026-09-23 on this branch: `pnpm check` passes (80 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 10 of 10 against the built stack; `pnpm audit` reports no known vulnerabilities.
 
 ## The specs are authoritative
 
@@ -130,7 +145,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts` and `apps/api/test/publication.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (5 suites, 89 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts` and `e2e/assets.spec.ts` via `pnpm test:e2e` (9 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts` and `apps/api/test/public-passport.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (6 suites, 110 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts` and `e2e/public-passport.spec.ts` via `pnpm test:e2e` (10 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.

@@ -141,6 +141,29 @@ Recorded 2026-09-23 and implemented, merged into `main`.
 | Response contract | `passportId`, `productId`, `publicUuid`, `versionId`, `versionNumber`, `sourceDraftRevision`, `firstPublishedAt`, `publishedAt`, `publicUrl`, `qrTargetUrl`, `verificationStatus`, `replayed`. Never QR bytes, snapshot JSON or asset bytes. A replay returns the same Passport-level values apart from `replayed`. |
 | Verification in the snapshot | `verification: { status: 'VERIFIED', basis: 'PROTOTYPE_APPLICATION_LEVEL' }`, recording the basis explicitly so the badge cannot be read as a review outcome. |
 
+### B8. Public passport surface decisions (Stage 4.2)
+
+Recorded 2026-09-23 and implemented on `build/public-passport-api`.
+
+| Decision | Value |
+| --- | --- |
+| Source of truth | Anonymous reads use only the current **immutable** `PassportVersion` snapshot. Live draft rows never contribute content; `Product.deletedAt` participates only as a visibility filter. |
+| Active visibility | A passport is publicly active when it exists, has a non-null `currentVersionId`, has a null `withdrawnAt`, and its Product is not soft-deleted. Withdrawal and deletion are not implemented yet, so those clauses are defensive against a future lifecycle change. |
+| Failure semantics | Malformed UUID, unknown, unpublished, withdrawn and soft-deleted all return one identical 404 body, so the surface cannot be probed for existence. No `410 Gone` tombstone yet; that belongs with the delete/withdraw slice. |
+| Projection | `PassportView` is the single API-owned public contract, consumed later by the Stage 4.3 preview/public page and the Stage 4.5 PDF. It exposes no company id, publisher, draft revision or raw snapshot wrapper, and never returns `publicSnapshot` or Prisma models. |
+| Snapshot schema | Version 1 only. No generic versioning framework: an unrecognised or structurally corrupt snapshot fails as a controlled server error without leaking stored JSON. |
+| Public asset route | `GET /passport/:uuid/assets/:assetId` serves bytes only when the asset is retained by the current active version, is still `ACCEPTED`, and has content. An arbitrary accepted asset is not public because its id is known. |
+| Historical assets | An asset referenced only by an older version becomes private again after a republish, while its `PassportVersionAsset` history is retained. There is no public historical-version route. |
+| Role authority | The snapshot owns semantic role and ordering. `PassportVersionAsset` owns retention and download authorization only, and is never used to reconstruct roles: it is keyed `(versionId, assetId)`, so one asset used in two roles has a single row. |
+| URLs | Asset URLs are API-relative (`/passport/:uuid/assets/:assetId`) so the API need not know its own public origin; page URLs are absolute from `PUBLIC_APP_ORIGIN`. No `PUBLIC_API_ORIGIN` was introduced. |
+| Binary headers | Shared helper, not duplicated: server-detected MIME, exact `Content-Length`, `nosniff`, images `inline`, PDFs `attachment`, safe filename. Request filename, extension, MIME and query parameters never influence the response type. |
+| QR download | `GET /passport/:uuid/qr.png` serves the stored Stage 4.1 bytes unchanged, so a printed code keeps working across republishes. A download is not a scan and records nothing. |
+| QR resolution | Nest owns `GET /q/:uuid` and answers 302 to `{PUBLIC_APP_ORIGIN}/passport/{uuid}`, built from validated configuration plus the stored UUID and never from the request `Host`. Stage 5 can instrument this route without changing printed URLs. |
+| Web bridge | The web app rewrites `/q/:uuid` to the API origin using the existing `NEXT_PUBLIC_API_URL`. The source is a single-segment pattern and the destination origin is pinned at config load, so the bridge cannot proxy arbitrary paths or hosts. |
+| Caching | `no-store` on every public response. No Redis, no application cache, no ISR: caching is revisited in the Redis milestone once withdrawal and republish semantics are in place. |
+| Analytics | None. No `AnalyticsEvent` or `AnalyticsDaily` write, and no IP or user-agent parsing. Stage 5 owns those definitions. |
+| QR decode evidence | A test-only `jsqr` decoder (devDependency, Apache-2.0) decodes the real stored artifact, proving the payload equals the configured target. It is never a runtime dependency. |
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.

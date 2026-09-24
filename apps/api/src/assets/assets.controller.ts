@@ -16,33 +16,11 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
 import { ApiException } from '../common/api-exception.js'
-import type { HttpResponse } from '../common/http-types.js'
+import { type BinaryHttpResponse, writeBinaryResponse } from '../common/binary-response.js'
 import type { AssetResponse, UploadedFile as UploadedFileShape } from './asset.types.js'
 import { PDF_MIME_TYPE, UPLOAD_MAX_BYTES } from './asset-processing.js'
 import { AssetsService } from './assets.service.js'
 import { UploadExceptionFilter } from './upload-exception.filter.js'
-
-/** Builds a `Content-Disposition` value that cannot break out of the header. */
-function contentDisposition(originalName: string, disposition: 'inline' | 'attachment'): string {
-  const asciiFallback = originalName.replace(/[^\u0020-\u007e]/g, '_').replace(/["\\]/g, '_')
-  const encoded = encodeURIComponent(originalName).replace(
-    /['()*]/g,
-    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  )
-
-  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`
-}
-
-/**
- * The response surface this controller needs for a binary body.
- *
- * `end` is used directly rather than returning the buffer: Nest's reply logic treats
- * an object body as JSON, which would serialize the buffer as `{"type":"Buffer"...}`
- * instead of streaming the bytes.
- */
-type BinaryHttpResponse = HttpResponse & {
-  end(body: Buffer): void
-}
 
 @Controller('assets')
 @UseGuards(AccessTokenGuard)
@@ -105,15 +83,13 @@ export class AssetsController {
     const asset = await this.assets.findForDownload(actor.companyId, id)
     const isPdf = asset.detectedMime === PDF_MIME_TYPE
 
-    response.setHeader('Content-Type', asset.detectedMime)
-    response.setHeader('Content-Length', String(asset.bytes.length))
-    response.setHeader('X-Content-Type-Options', 'nosniff')
-    response.setHeader('Cache-Control', 'private, no-store')
-    response.setHeader(
-      'Content-Disposition',
-      contentDisposition(asset.originalName, isPdf ? 'attachment' : 'inline'),
-    )
-
-    response.end(asset.bytes)
+    writeBinaryResponse(response, asset.bytes, {
+      contentType: asset.detectedMime,
+      originalName: asset.originalName,
+      disposition: isPdf ? 'attachment' : 'inline',
+      // Authenticated content is private to the company and never cached by a shared
+      // cache; the anonymous route below uses plain `no-store`.
+      cacheControl: 'private, no-store',
+    })
   }
 }
