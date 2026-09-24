@@ -37,6 +37,8 @@ export class PublicPassportController {
       contentType: 'image/png',
       originalName: qr.filename,
       disposition: 'attachment',
+      // Publicly readable by design, and embeddable from the web origin.
+      crossOriginResourcePolicy: 'cross-origin',
     })
   }
 
@@ -70,6 +72,10 @@ export class PublicPassportController {
       originalName: asset.originalName,
       // PDFs download rather than render inline; images stay inline for the public page.
       disposition: asset.detectedMime === PDF_MIME_TYPE ? 'attachment' : 'inline',
+      // The public page embeds these bytes, so the browser must be allowed to use a
+      // cross-origin response. Authorization is unchanged: it is still derived from the
+      // current immutable published version, not from the request.
+      crossOriginResourcePolicy: 'cross-origin',
     })
   }
 

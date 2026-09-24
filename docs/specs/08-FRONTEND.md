@@ -43,7 +43,7 @@ General Information; Materials; Sustainability; Certifications; Documents; Image
 
 Use one coherent explicit-save flow with dirty-state indication and navigation protection. Drag-and-drop has a normal file input fallback, progress, type/size feedback and retry. Do not lose entered fields on an upload error or authentication refresh.
 
-Preview reuses the public presentation component and the same public field mapping. API validation is authoritative; client validation provides immediate feedback. Prevent publishing an unsaved editor revision accidentally.
+Preview maps current editor content (including unsaved edits) into the same public presentation component. The shared presentation simulates eventual Published and qualified prototype Verified state; editor-only chrome labels the candidate as unpublished. Publication identifiers, version and dates remain placeholders unless known from actual publication, and Preview never publishes. API validation is authoritative; client validation provides immediate feedback. Prevent publishing an unsaved editor revision accidentally.
 
 ## Acceptance
 

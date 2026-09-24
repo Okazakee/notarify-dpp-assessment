@@ -3,9 +3,15 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../auth-context'
 import { LogoutButton } from '../../logout-button'
+import {
+  type DraftPreviewPublication,
+  toDraftPresentationModel,
+} from '../../passport/draft-preview'
+import { DOCUMENT_KIND_LABELS, PassportPresentation } from '../../passport/presentation'
+import { useAssetObjectUrls } from '../../passport/use-asset-object-urls'
 import {
   type AuthenticatedRequest,
   describeApiError,
@@ -29,6 +35,7 @@ import type {
   ProductDocument,
   ProductEditorForm,
   ProductImage,
+  ProductStatus,
   Sustainability,
   SustainabilityDraft,
 } from '../types'
@@ -38,12 +45,8 @@ const MAX_GALLERY_IMAGES = 12
 const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp'
 const PDF_ACCEPT = 'application/pdf'
 
-const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
-  MANUAL: 'Manual',
-  WARRANTY: 'Warranty',
-  TECHNICAL_DATASHEET: 'Technical datasheet',
-}
-
+// Document-kind labels live with the shared presentation contract, so the editor and the
+// public passport page can never disagree about what a kind is called.
 const DOCUMENT_KINDS: DocumentKind[] = ['MANUAL', 'WARRANTY', 'TECHNICAL_DATASHEET']
 
 const EMPTY_FORM: ProductEditorForm = {
@@ -59,6 +62,128 @@ const EMPTY_FORM: ProductEditorForm = {
   certifications: [],
   images: [],
   documents: [],
+}
+
+/**
+ * The seven assessment-required editor tabs, in the required order.
+ *
+ * Each panel keeps the markup it already had; only the visible tab travels. Inactive
+ * panels are hidden rather than unmounted, so switching tabs can never lose entered data
+ * and can never trigger a save.
+ */
+type EditorTab =
+  | 'general'
+  | 'materials'
+  | 'sustainability'
+  | 'certifications'
+  | 'documents'
+  | 'images'
+  | 'preview'
+
+const EDITOR_TABS: Array<{ id: EditorTab; label: string }> = [
+  { id: 'general', label: 'General Information' },
+  { id: 'materials', label: 'Materials' },
+  { id: 'sustainability', label: 'Sustainability' },
+  { id: 'certifications', label: 'Certifications' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'images', label: 'Images' },
+  { id: 'preview', label: 'Preview' },
+]
+
+/**
+ * Maps a publication gap named by the API onto the tab that owns that field.
+ */
+function firstTabForPublicationGaps(message: string): EditorTab | null {
+  // The first gap the API reports is the most relevant one to show the operator, so the
+  // tab is chosen from the first fragment rather than from the first matching rule.
+  const fragments = message.replace(/^[^:]*:\s*/, '').split(';')
+
+  for (const fragment of fragments) {
+    if (/certification/i.test(fragment)) {
+      return 'certifications'
+    }
+    if (/material/i.test(fragment)) {
+      return 'materials'
+    }
+    if (/sustainability/i.test(fragment)) {
+      return 'sustainability'
+    }
+    if (/cover image/i.test(fragment)) {
+      return 'images'
+    }
+    if (/name|sku|serial|category|description|production date|country of origin/i.test(fragment)) {
+      return 'general'
+    }
+  }
+  return null
+}
+
+function EditorTabList({ tab, onSelect }: { tab: EditorTab; onSelect: (next: EditorTab) => void }) {
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  function selectAt(index: number) {
+    const entry = EDITOR_TABS[index]
+    if (entry === undefined) {
+      return
+    }
+    onSelect(entry.id)
+    buttonRefs.current[index]?.focus()
+  }
+
+  function move(delta: number) {
+    const current = EDITOR_TABS.findIndex((entry) => entry.id === tab)
+    selectAt((current + delta + EDITOR_TABS.length) % EDITOR_TABS.length)
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Product editor sections"
+      aria-orientation="horizontal"
+      className="mt-6 flex flex-wrap gap-1 rounded-box border border-base-300 bg-base-100 p-1"
+    >
+      {EDITOR_TABS.map((entry, index) => {
+        const selected = entry.id === tab
+        return (
+          <button
+            key={entry.id}
+            ref={(node) => {
+              buttonRefs.current[index] = node
+            }}
+            // Never a submit button: these live above the draft form and must not save it.
+            type="button"
+            role="tab"
+            id={`tab-${entry.id}`}
+            aria-selected={selected}
+            aria-controls={`panel-${entry.id}`}
+            tabIndex={selected ? 0 : -1}
+            data-testid={`editor-tab-${entry.id}`}
+            onClick={() => onSelect(entry.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowRight') {
+                event.preventDefault()
+                move(1)
+              } else if (event.key === 'ArrowLeft') {
+                event.preventDefault()
+                move(-1)
+              } else if (event.key === 'Home') {
+                event.preventDefault()
+                selectAt(0)
+              } else if (event.key === 'End') {
+                event.preventDefault()
+                selectAt(EDITOR_TABS.length - 1)
+              }
+            }}
+            className={`btn btn-sm min-w-0 flex-1 whitespace-nowrap focus:outline-2 focus:outline-offset-2 focus:outline-primary ${
+              selected ? 'btn-primary' : 'btn-ghost'
+            }`}
+          >
+            {entry.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 type ConflictState = {
@@ -140,6 +265,30 @@ function isProductDetail(value: unknown): value is ProductDetail {
     Array.isArray(candidate.images) &&
     Array.isArray(candidate.documents) &&
     (candidate.sustainability === null || typeof candidate.sustainability === 'object')
+  )
+}
+
+type PublishResult = {
+  publicUuid: string
+  versionNumber: number
+  publicUrl: string
+  publishedAt: string
+  firstPublishedAt: string
+  replayed: boolean
+}
+
+function isPublishResult(value: unknown): value is PublishResult {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Partial<PublishResult>
+  return (
+    typeof candidate.publicUuid === 'string' &&
+    typeof candidate.versionNumber === 'number' &&
+    typeof candidate.publicUrl === 'string' &&
+    typeof candidate.publishedAt === 'string' &&
+    typeof candidate.firstPublishedAt === 'string' &&
+    typeof candidate.replayed === 'boolean'
   )
 }
 
@@ -407,23 +556,31 @@ function toSavePayload(form: ProductEditorForm): SavePayload {
   }
 }
 
-function validateForm(form: ProductEditorForm): string | null {
-  const countryFields = [
-    ['origin country', form.originCountry],
-    ...form.materials.map((material, index) => [
-      `material ${index + 1} origin country`,
-      material.originCountry,
-    ]),
-  ] as const
-  for (const [label, value] of countryFields) {
-    if (value.length > 0 && !/^[A-Z]{2}$/.test(value.toUpperCase())) {
-      return `${label} must be a two-letter country code.`
+/**
+ * A blockable client-side validation failure.
+ *
+ * It names the tab that owns the offending field so the editor can reveal it: a field in a
+ * hidden panel can neither show native feedback nor be focused, which would make Save look
+ * inert when the tab is not open.
+ */
+type ValidationFailure = { message: string; tab: EditorTab; fieldId: string }
+
+function validateForm(form: ProductEditorForm): ValidationFailure | null {
+  if (form.originCountry.length > 0 && !/^[A-Z]{2}$/.test(form.originCountry.toUpperCase())) {
+    return {
+      message: 'origin country must be a two-letter country code.',
+      tab: 'general',
+      fieldId: 'origin-country',
     }
   }
 
   for (const [index, material] of form.materials.entries()) {
     if (material.name.trim().length === 0) {
-      return `Material ${index + 1} needs a name.`
+      return {
+        message: `Material ${index + 1} needs a name.`,
+        tab: 'materials',
+        fieldId: `material-name-${index}`,
+      }
     }
     const percentage = Number(material.percentage)
     if (
@@ -432,35 +589,57 @@ function validateForm(form: ProductEditorForm): string | null {
       percentage < 0 ||
       percentage > 100
     ) {
-      return `Material ${index + 1} percentage must be between 0 and 100.`
+      return {
+        message: `Material ${index + 1} percentage must be between 0 and 100.`,
+        tab: 'materials',
+        fieldId: `material-percentage-${index}`,
+      }
+    }
+    if (
+      material.originCountry.length > 0 &&
+      !/^[A-Z]{2}$/.test(material.originCountry.toUpperCase())
+    ) {
+      return {
+        message: `material ${index + 1} origin country must be a two-letter country code.`,
+        tab: 'materials',
+        fieldId: `material-country-${index}`,
+      }
     }
   }
 
   if (form.sustainability !== null) {
-    const numericFields: Array<[string, string, number]> = [
-      ['carbon footprint', form.sustainability.carbonKgCo2e, Number.POSITIVE_INFINITY],
-      ['water usage', form.sustainability.waterLitres, Number.POSITIVE_INFINITY],
-      ['recycled percentage', form.sustainability.recycledPercent, 100],
-      ['repairability score', form.sustainability.repairabilityScore, 10],
+    const numericFields: Array<[string, string, number, string]> = [
+      ['carbon footprint', form.sustainability.carbonKgCo2e, Number.POSITIVE_INFINITY, 'carbon-kg'],
+      ['water usage', form.sustainability.waterLitres, Number.POSITIVE_INFINITY, 'water-litres'],
+      ['recycled percentage', form.sustainability.recycledPercent, 100, 'recycled-percent'],
+      ['repairability score', form.sustainability.repairabilityScore, 10, 'repairability-score'],
     ]
-    for (const [label, value, maximum] of numericFields) {
+    for (const [label, value, maximum, fieldId] of numericFields) {
       if (value.trim().length === 0) {
         continue
       }
       const number = Number(value)
       if (!Number.isFinite(number) || number < 0 || number > maximum) {
-        return `${label} must be a valid non-negative number${Number.isFinite(maximum) ? ` no greater than ${maximum}` : ''}.`
+        return {
+          message: `${label} must be a valid non-negative number${Number.isFinite(maximum) ? ` no greater than ${maximum}` : ''}.`,
+          tab: 'sustainability',
+          fieldId,
+        }
       }
     }
   }
 
   const coverCount = form.images.filter((image) => image.role === 'COVER').length
   if (coverCount > 1) {
-    return 'Choose at most one cover image.'
+    return { message: 'Choose at most one cover image.', tab: 'images', fieldId: 'cover-image' }
   }
   const galleryCount = form.images.filter((image) => image.role === 'GALLERY').length
   if (galleryCount > MAX_GALLERY_IMAGES) {
-    return `A product may have at most ${MAX_GALLERY_IMAGES} gallery images.`
+    return {
+      message: `A product may have at most ${MAX_GALLERY_IMAGES} gallery images.`,
+      tab: 'images',
+      fieldId: 'gallery-image',
+    }
   }
 
   return null
@@ -560,8 +739,62 @@ export default function ProductEditorPage() {
   const [conflict, setConflict] = useState<ConflictState | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [tab, setTab] = useState<EditorTab>('general')
+  const [savedPayloadKey, setSavedPayloadKey] = useState<string | null>(null)
+  const [productStatus, setProductStatus] = useState<ProductStatus>('DRAFT')
+  const [publication, setPublication] = useState<DraftPreviewPublication | null>(null)
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishNotice, setPublishNotice] = useState<string | null>(null)
 
   const coverImage = findCoverImage(form.images)
+
+  /**
+   * Dirty state is derived from the canonical save payload, not from object identity, so
+   * re-creating the same form value never marks the draft dirty.
+   */
+  const currentPayloadKey = useMemo(() => JSON.stringify(toSavePayload(form)), [form])
+  const isDirty = savedPayloadKey !== null && currentPayloadKey !== savedPayloadKey
+
+  // Navigation protection for unsaved work, as owned by docs/specs/08-FRONTEND.md.
+  useEffect(() => {
+    if (!isDirty) {
+      return
+    }
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', warnBeforeUnload)
+    }
+  }, [isDirty])
+
+  // Private draft assets are only fetched while the Preview tab is actually on screen.
+  const previewImageAssetIds = useMemo(
+    () => (tab === 'preview' ? form.images.map((image) => image.assetId) : []),
+    [tab, form.images],
+  )
+  const previewImageSrcs = useAssetObjectUrls(request, previewImageAssetIds)
+
+  const previewCategoryName = useMemo(
+    () => categories.find((category) => category.id === form.categoryId)?.name ?? null,
+    [categories, form.categoryId],
+  )
+
+  const previewModel = useMemo(
+    () =>
+      toDraftPresentationModel({
+        form,
+        categoryName: previewCategoryName,
+        // The account exposes no company display name to the editor, so Preview is explicit
+        // that this line is a placeholder rather than a real brand value.
+        brandDisplayName: 'Your company name',
+        publication,
+        imageSrcs: previewImageSrcs,
+      }),
+    [form, previewCategoryName, publication, previewImageSrcs],
+  )
 
   const nextClientId = useCallback((prefix: string): string => {
     keyCounter.current += 1
@@ -579,6 +812,10 @@ export default function ProductEditorPage() {
           throw new ProductApiError(502, 'The API returned invalid product data.')
         }
         setDraftRevision(payload.draftRevision)
+        setProductStatus(payload.status)
+        // The baseline always tracks the latest server state, so both a discarded refetch and
+        // a "keep my changes" refetch leave the dirty calculation correct.
+        setSavedPayloadKey(JSON.stringify(toSavePayload(fromDetail(payload))))
         if (replaceForm) {
           setForm(fromDetail(payload))
         }
@@ -888,9 +1125,15 @@ export default function ProductEditorPage() {
       setSaveError('The current draft revision is unavailable. Refetch the product and try again.')
       return
     }
-    const validationError = validateForm(form)
-    if (validationError !== null) {
-      setSaveError(validationError)
+    const validationFailure = validateForm(form)
+    if (validationFailure !== null) {
+      setSaveError(validationFailure.message)
+      // Reveal the tab that owns the problem and put the cursor in the field itself, which
+      // may have been hidden when the save was attempted.
+      setTab(validationFailure.tab)
+      window.setTimeout(() => {
+        document.getElementById(validationFailure.fieldId)?.focus()
+      }, 0)
       return
     }
 
@@ -905,8 +1148,11 @@ export default function ProductEditorPage() {
       if (!isProductDetail(payload)) {
         throw new ProductApiError(502, 'The API returned invalid product data.')
       }
+      const savedForm = fromDetail(payload)
       setDraftRevision(payload.draftRevision)
-      setForm(fromDetail(payload))
+      setProductStatus(payload.status)
+      setForm(savedForm)
+      setSavedPayloadKey(JSON.stringify(toSavePayload(savedForm)))
       setSaveError(null)
     } catch (requestError: unknown) {
       if (requestError instanceof ProductApiError && requestError.status === 409) {
@@ -922,6 +1168,94 @@ export default function ProductEditorPage() {
       }
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handlePublish() {
+    setPublishError(null)
+    setPublishNotice(null)
+
+    if (conflict !== null) {
+      setPublishError('Choose how to resolve the stale draft before publishing.')
+      return
+    }
+    if (draftRevision === null) {
+      setPublishError(
+        'The current draft revision is unavailable. Refetch the product and try again.',
+      )
+      return
+    }
+    // Publishing is never combined with saving: the revision the operator reviewed must be
+    // the revision that gets published.
+    if (isDirty) {
+      setPublishError(
+        'Save the draft before publishing, so the published revision is the one you reviewed.',
+      )
+      return
+    }
+
+    // A publish must never race an in-flight upload: the upload lands after the revision
+    // was claimed, so the newly attached asset would arrive as an unsaved change.
+    if (isUploading) {
+      setPublishError('An asset upload is still in progress. Wait for it to finish.')
+      return
+    }
+
+    setIsPublishing(true)
+    try {
+      const response = await request(`/products/${productId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedDraftRevision: draftRevision }),
+      })
+      const payload = await readApiResponse<unknown>(response)
+      if (!isPublishResult(payload)) {
+        throw new ProductApiError(502, 'The API returned invalid publication data.')
+      }
+      setProductStatus('PUBLISHED')
+      setPublication({
+        publicUuid: payload.publicUuid,
+        version: payload.versionNumber,
+        publicUrl: payload.publicUrl,
+        publishedAt: payload.publishedAt,
+        creationDate: payload.firstPublishedAt,
+      })
+      setPublishNotice(
+        payload.replayed
+          ? `This revision is already published as v${payload.versionNumber}; the public passport is unchanged.`
+          : `Published as v${payload.versionNumber}. The public passport now shows this revision.`,
+      )
+    } catch (requestError: unknown) {
+      if (
+        requestError instanceof ProductApiError &&
+        requestError.code === 'PRODUCT_REVISION_CONFLICT'
+      ) {
+        // Same contract as a stale save: never publish a revision the operator did not review.
+        setConflict({
+          message:
+            'This draft changed elsewhere. Your entered data is still here. Choose whether to use your changes on the latest revision or discard them.',
+        })
+      } else if (
+        requestError instanceof ProductApiError &&
+        (requestError.code === 'PUBLICATION_INCOMPLETE' ||
+          requestError.code === 'PUBLICATION_ASSET_UNAVAILABLE' ||
+          requestError.code === 'PUBLICATION_ASSET_TYPE_INVALID')
+      ) {
+        setPublishError(requestError.message)
+        const owningTab = firstTabForPublicationGaps(requestError.message)
+        if (owningTab !== null) {
+          setTab(owningTab)
+        }
+      } else {
+        setPublishError(
+          describeApiError(
+            requestError,
+            'Unable to publish this product. Your draft is unchanged.',
+          ),
+        )
+      }
+    } finally {
+      setIsPublishing(false)
     }
   }
 
@@ -1013,6 +1347,14 @@ export default function ProductEditorPage() {
             <Link
               href="/products"
               className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+              onClick={(event) => {
+                if (
+                  isDirty &&
+                  !window.confirm('Discard your unsaved changes and leave the editor?')
+                ) {
+                  event.preventDefault()
+                }
+              }}
             >
               Back to products
             </Link>
@@ -1065,10 +1407,56 @@ export default function ProductEditorPage() {
           </p>
         ) : null}
 
-        <form className="mt-6 space-y-6" onSubmit={handleSave}>
+        <EditorTabList tab={tab} onSelect={setTab} />
+
+        {/* Rendered outside the panels: an upload can start on the Images, Documents and
+            Certifications tabs, and a failure must be visible from whichever one is open. */}
+        {uploadError !== null ? (
+          <p role="alert" data-testid="upload-error" className="alert alert-error mt-4">
+            {uploadError}
+          </p>
+        ) : null}
+
+        {publishError !== null ? (
+          <p className="alert alert-error mt-4" role="alert" data-testid="publish-error">
+            {publishError}
+          </p>
+        ) : null}
+
+        {publishNotice !== null ? (
+          <div
+            className="alert alert-success mt-4 items-start"
+            role="status"
+            data-testid="publish-notice"
+          >
+            <div className="min-w-0">
+              <p className="font-semibold">{publishNotice}</p>
+              {publication !== null ? (
+                <p className="mt-2 text-sm">
+                  <a
+                    className="link"
+                    href={publication.publicUrl}
+                    data-testid="publish-public-link"
+                  >
+                    Open the public passport
+                  </a>{' '}
+                  <span className="break-all font-mono text-xs">{publication.publicUrl}</span>
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <form className="mt-6 space-y-6" onSubmit={handleSave} noValidate>
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="general-heading"
+            role="tabpanel"
+            id="panel-general"
+            aria-labelledby="tab-general"
+            data-tab-panel="general"
+            hidden={tab !== 'general'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'general' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div>
@@ -1184,286 +1572,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="images-heading"
-          >
-            <div className="card-body gap-5">
-              <div>
-                <h2 id="images-heading" className="card-title text-xl">
-                  Images
-                </h2>
-                <p className="mt-1 text-sm text-base-content/70">
-                  One cover image and up to {MAX_GALLERY_IMAGES} gallery images. JPEG, PNG or WebP,
-                  up to 5 MiB each. The API re-encodes every upload and strips metadata.
-                </p>
-              </div>
-
-              {uploadError !== null ? (
-                <p role="alert" className="text-sm text-error">
-                  {uploadError}
-                </p>
-              ) : null}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="form-control">
-                  <label className="label" htmlFor="cover-image">
-                    <span className="label-text font-medium">
-                      {coverImage === undefined ? 'Cover image' : 'Replace cover image'}
-                    </span>
-                  </label>
-                  <input
-                    id="cover-image"
-                    type="file"
-                    accept={IMAGE_ACCEPT}
-                    disabled={isUploading}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      event.target.value = ''
-                      if (file !== undefined) {
-                        void addImage(file, 'COVER')
-                      }
-                    }}
-                    className="file-input file-input-bordered w-full"
-                  />
-                </div>
-                <div className="form-control">
-                  <label className="label" htmlFor="gallery-image">
-                    <span className="label-text font-medium">Add gallery image</span>
-                  </label>
-                  <input
-                    id="gallery-image"
-                    type="file"
-                    accept={IMAGE_ACCEPT}
-                    disabled={isUploading}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      event.target.value = ''
-                      if (file !== undefined) {
-                        void addImage(file, 'GALLERY')
-                      }
-                    }}
-                    className="file-input file-input-bordered w-full"
-                  />
-                </div>
-              </div>
-
-              <label
-                htmlFor="gallery-image"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const file = event.dataTransfer.files?.[0]
-                  if (file !== undefined) {
-                    void addImage(file, 'GALLERY')
-                  }
-                }}
-                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
-              >
-                Or drop an image here to add it to the gallery.
-              </label>
-
-              {form.images.length === 0 ? (
-                <p className="text-sm text-base-content/70">No images attached yet.</p>
-              ) : (
-                <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {form.images.map((image, index) => (
-                    <li
-                      key={image.clientId}
-                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
-                    >
-                      <AssetPreview
-                        request={request}
-                        assetId={image.assetId}
-                        alt={image.altText.length > 0 ? image.altText : image.originalName}
-                      />
-                      <p className="text-sm font-semibold">
-                        {image.role === 'COVER'
-                          ? 'Cover'
-                          : `Gallery ${galleryIndex(form.images, index) + 1}`}
-                      </p>
-                      <p
-                        className="truncate text-xs text-base-content/70"
-                        title={image.originalName}
-                      >
-                        {image.originalName}
-                      </p>
-                      <div className="form-control">
-                        <label className="label" htmlFor={`image-alt-${index}`}>
-                          <span className="label-text text-xs">Alt text</span>
-                        </label>
-                        <input
-                          id={`image-alt-${index}`}
-                          type="text"
-                          value={image.altText}
-                          maxLength={240}
-                          onChange={(event) => updateImage(index, { altText: event.target.value })}
-                          className="input input-bordered input-sm w-full"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          disabled={image.role === 'COVER'}
-                          onClick={() => moveImage(index, -1)}
-                        >
-                          Move up
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          disabled={image.role === 'COVER'}
-                          onClick={() => moveImage(index, 1)}
-                        >
-                          Move down
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-error btn-outline btn-xs"
-                          onClick={() => removeImage(index)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="documents-heading"
-          >
-            <div className="card-body gap-5">
-              <div>
-                <h2 id="documents-heading" className="card-title text-xl">
-                  Documents
-                </h2>
-                <p className="mt-1 text-sm text-base-content/70">
-                  Manuals, warranties and technical datasheets as PDF, up to 10 MiB each.
-                </p>
-              </div>
-
-              <label
-                htmlFor="document-upload-MANUAL"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const file = event.dataTransfer.files?.[0]
-                  if (file !== undefined) {
-                    void addDocument(file, 'MANUAL')
-                  }
-                }}
-                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
-              >
-                Drop a PDF here to attach it as a manual.
-              </label>
-
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {DOCUMENT_KINDS.map((kind) => (
-                  <div className="form-control" key={kind}>
-                    <label className="label" htmlFor={`document-upload-${kind}`}>
-                      <span className="label-text font-medium">
-                        Add {DOCUMENT_KIND_LABELS[kind].toLowerCase()}
-                      </span>
-                    </label>
-                    <input
-                      id={`document-upload-${kind}`}
-                      type="file"
-                      accept={PDF_ACCEPT}
-                      disabled={isUploading}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        event.target.value = ''
-                        if (file !== undefined) {
-                          void addDocument(file, kind)
-                        }
-                      }}
-                      className="file-input file-input-bordered w-full"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {form.documents.length === 0 ? (
-                <p className="text-sm text-base-content/70">No documents attached yet.</p>
-              ) : (
-                <ul className="grid gap-4 md:grid-cols-2">
-                  {form.documents.map((document, index) => (
-                    <li
-                      key={document.clientId}
-                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
-                    >
-                      <p className="truncate text-sm font-semibold" title={document.originalName}>
-                        {document.originalName}
-                      </p>
-                      <div className="form-control">
-                        <label className="label" htmlFor={`document-kind-${index}`}>
-                          <span className="label-text text-xs">Type</span>
-                        </label>
-                        <select
-                          id={`document-kind-${index}`}
-                          value={document.kind}
-                          onChange={(event) =>
-                            updateDocument(index, { kind: event.target.value as DocumentKind })
-                          }
-                          className="select select-bordered select-sm w-full"
-                        >
-                          {DOCUMENT_KINDS.map((kind) => (
-                            <option key={kind} value={kind}>
-                              {DOCUMENT_KIND_LABELS[kind]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="form-control">
-                        <label className="label" htmlFor={`document-title-${index}`}>
-                          <span className="label-text text-xs">Title</span>
-                        </label>
-                        <input
-                          id={`document-title-${index}`}
-                          type="text"
-                          value={document.title}
-                          maxLength={240}
-                          onChange={(event) => updateDocument(index, { title: event.target.value })}
-                          className="input input-bordered input-sm w-full"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          onClick={() => moveDocument(index, -1)}
-                        >
-                          Move up
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          onClick={() => moveDocument(index, 1)}
-                        >
-                          Move down
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-error btn-outline btn-xs"
-                          onClick={() => removeDocument(index)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="materials-heading"
+            role="tabpanel"
+            id="panel-materials"
+            aria-labelledby="tab-materials"
+            data-tab-panel="materials"
+            hidden={tab !== 'materials'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'materials' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1616,8 +1732,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="sustainability-heading"
+            role="tabpanel"
+            id="panel-sustainability"
+            aria-labelledby="tab-sustainability"
+            data-tab-panel="sustainability"
+            hidden={tab !== 'sustainability'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'sustainability' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1755,8 +1877,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="certifications-heading"
+            role="tabpanel"
+            id="panel-certifications"
+            aria-labelledby="tab-certifications"
+            data-tab-panel="certifications"
+            hidden={tab !== 'certifications'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'certifications' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1937,20 +2065,372 @@ export default function ProductEditorPage() {
             </div>
           </section>
 
+          <section
+            role="tabpanel"
+            id="panel-documents"
+            aria-labelledby="tab-documents"
+            data-tab-panel="documents"
+            hidden={tab !== 'documents'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'documents' ? '' : 'hidden'
+            }`}
+          >
+            <div className="card-body gap-5">
+              <div>
+                <h2 id="documents-heading" className="card-title text-xl">
+                  Documents
+                </h2>
+                <p className="mt-1 text-sm text-base-content/70">
+                  Manuals, warranties and technical datasheets as PDF, up to 10 MiB each.
+                </p>
+              </div>
+
+              <label
+                htmlFor="document-upload-MANUAL"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (file !== undefined) {
+                    void addDocument(file, 'MANUAL')
+                  }
+                }}
+                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
+              >
+                Drop a PDF here to attach it as a manual.
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {DOCUMENT_KINDS.map((kind) => (
+                  <div className="form-control" key={kind}>
+                    <label className="label" htmlFor={`document-upload-${kind}`}>
+                      <span className="label-text font-medium">
+                        Add {DOCUMENT_KIND_LABELS[kind].toLowerCase()}
+                      </span>
+                    </label>
+                    <input
+                      id={`document-upload-${kind}`}
+                      type="file"
+                      accept={PDF_ACCEPT}
+                      disabled={isUploading}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        event.target.value = ''
+                        if (file !== undefined) {
+                          void addDocument(file, kind)
+                        }
+                      }}
+                      className="file-input file-input-bordered w-full"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {form.documents.length === 0 ? (
+                <p className="text-sm text-base-content/70">No documents attached yet.</p>
+              ) : (
+                <ul className="grid gap-4 md:grid-cols-2">
+                  {form.documents.map((document, index) => (
+                    <li
+                      key={document.clientId}
+                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
+                    >
+                      <p className="truncate text-sm font-semibold" title={document.originalName}>
+                        {document.originalName}
+                      </p>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`document-kind-${index}`}>
+                          <span className="label-text text-xs">Type</span>
+                        </label>
+                        <select
+                          id={`document-kind-${index}`}
+                          value={document.kind}
+                          onChange={(event) =>
+                            updateDocument(index, { kind: event.target.value as DocumentKind })
+                          }
+                          className="select select-bordered select-sm w-full"
+                        >
+                          {DOCUMENT_KINDS.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {DOCUMENT_KIND_LABELS[kind]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`document-title-${index}`}>
+                          <span className="label-text text-xs">Title</span>
+                        </label>
+                        <input
+                          id={`document-title-${index}`}
+                          type="text"
+                          value={document.title}
+                          maxLength={240}
+                          onChange={(event) => updateDocument(index, { title: event.target.value })}
+                          className="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => moveDocument(index, -1)}
+                        >
+                          Move up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => moveDocument(index, 1)}
+                        >
+                          Move down
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => removeDocument(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section
+            role="tabpanel"
+            id="panel-images"
+            aria-labelledby="tab-images"
+            data-tab-panel="images"
+            hidden={tab !== 'images'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'images' ? '' : 'hidden'
+            }`}
+          >
+            <div className="card-body gap-5">
+              <div>
+                <h2 id="images-heading" className="card-title text-xl">
+                  Images
+                </h2>
+                <p className="mt-1 text-sm text-base-content/70">
+                  One cover image and up to {MAX_GALLERY_IMAGES} gallery images. JPEG, PNG or WebP,
+                  up to 5 MiB each. The API re-encodes every upload and strips metadata.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="form-control">
+                  <label className="label" htmlFor="cover-image">
+                    <span className="label-text font-medium">
+                      {coverImage === undefined ? 'Cover image' : 'Replace cover image'}
+                    </span>
+                  </label>
+                  <input
+                    id="cover-image"
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file !== undefined) {
+                        void addImage(file, 'COVER')
+                      }
+                    }}
+                    className="file-input file-input-bordered w-full"
+                  />
+                </div>
+                <div className="form-control">
+                  <label className="label" htmlFor="gallery-image">
+                    <span className="label-text font-medium">Add gallery image</span>
+                  </label>
+                  <input
+                    id="gallery-image"
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file !== undefined) {
+                        void addImage(file, 'GALLERY')
+                      }
+                    }}
+                    className="file-input file-input-bordered w-full"
+                  />
+                </div>
+              </div>
+
+              <label
+                htmlFor="gallery-image"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const file = event.dataTransfer.files?.[0]
+                  if (file !== undefined) {
+                    void addImage(file, 'GALLERY')
+                  }
+                }}
+                className="cursor-pointer rounded-box border border-dashed border-base-300 p-4 text-center text-sm text-base-content/70"
+              >
+                Or drop an image here to add it to the gallery.
+              </label>
+
+              {form.images.length === 0 ? (
+                <p className="text-sm text-base-content/70">No images attached yet.</p>
+              ) : (
+                <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {form.images.map((image, index) => (
+                    <li
+                      key={image.clientId}
+                      className="flex flex-col gap-3 rounded-box border border-base-300 p-4"
+                    >
+                      <AssetPreview
+                        request={request}
+                        assetId={image.assetId}
+                        alt={image.altText.length > 0 ? image.altText : image.originalName}
+                      />
+                      <p className="text-sm font-semibold">
+                        {image.role === 'COVER'
+                          ? 'Cover'
+                          : `Gallery ${galleryIndex(form.images, index) + 1}`}
+                      </p>
+                      <p
+                        className="truncate text-xs text-base-content/70"
+                        title={image.originalName}
+                      >
+                        {image.originalName}
+                      </p>
+                      <div className="form-control">
+                        <label className="label" htmlFor={`image-alt-${index}`}>
+                          <span className="label-text text-xs">Alt text</span>
+                        </label>
+                        <input
+                          id={`image-alt-${index}`}
+                          type="text"
+                          value={image.altText}
+                          maxLength={240}
+                          onChange={(event) => updateImage(index, { altText: event.target.value })}
+                          className="input input-bordered input-sm w-full"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          disabled={image.role === 'COVER'}
+                          onClick={() => moveImage(index, -1)}
+                        >
+                          Move up
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          disabled={image.role === 'COVER'}
+                          onClick={() => moveImage(index, 1)}
+                        >
+                          Move down
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-xs"
+                          onClick={() => removeImage(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section
+            role="tabpanel"
+            id="panel-preview"
+            aria-labelledby="tab-preview"
+            data-tab-panel="preview"
+            hidden={tab !== 'preview'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'preview' ? '' : 'hidden'
+            }`}
+          >
+            {tab === 'preview' ? (
+              <div className="card-body gap-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 id="preview-heading" className="card-title">
+                    Preview
+                  </h2>
+                  <span className="badge badge-warning badge-sm" data-testid="preview-banner">
+                    Draft preview — unpublished editor state
+                  </span>
+                </div>
+                <p className="text-sm text-base-content/70">
+                  This renders the current editor contents through the same presentation component
+                  the public passport page uses. It includes changes you have not saved yet, and it
+                  is not the published passport.
+                </p>
+                <div
+                  className="rounded-box border border-base-300 bg-base-200 p-4"
+                  data-testid="preview-panel"
+                >
+                  <PassportPresentation model={previewModel} />
+                </div>
+              </div>
+            ) : null}
+          </section>
+
           <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-box border border-base-300 bg-base-100/95 p-4 shadow-lg backdrop-blur">
-            <p className="text-sm text-base-content/70">
-              Save sends revision {draftRevision ?? '—'}.
-            </p>
-            <button
-              type="submit"
-              className="btn btn-primary min-w-36 focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-              disabled={isSaving || isLoading || conflict !== null}
-            >
-              {isSaving ? (
-                <span className="loading loading-spinner loading-sm" aria-hidden="true" />
-              ) : null}
-              {isSaving ? 'Saving...' : 'Save draft'}
-            </button>
+            <div className="text-sm text-base-content/70">
+              <p>Save sends revision {draftRevision ?? '—'}.</p>
+              <p className="mt-1 text-xs" data-testid="dirty-state">
+                {isUploading
+                  ? 'Upload in progress — wait for it to finish before publishing.'
+                  : isDirty
+                    ? 'Unsaved changes — save before publishing.'
+                    : 'No unsaved changes.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="submit"
+                className="btn btn-primary min-w-36 focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                disabled={isSaving || isLoading || conflict !== null}
+              >
+                {isSaving ? (
+                  <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+                ) : null}
+                {isSaving ? 'Saving...' : 'Save draft'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary min-w-36 focus:outline-2 focus:outline-offset-2 focus:outline-secondary"
+                data-testid="publish-button"
+                onClick={() => void handlePublish()}
+                disabled={
+                  isPublishing ||
+                  isSaving ||
+                  isLoading ||
+                  isUploading ||
+                  isDirty ||
+                  conflict !== null ||
+                  draftRevision === null
+                }
+              >
+                {isPublishing ? (
+                  <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+                ) : null}
+                {isPublishing
+                  ? 'Publishing...'
+                  : productStatus === 'PUBLISHED'
+                    ? 'Republish'
+                    : 'Publish'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

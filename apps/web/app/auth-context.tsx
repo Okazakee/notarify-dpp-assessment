@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   createContext,
   type ReactNode,
@@ -43,7 +43,9 @@ type AuthContextValue = {
   request: (path: string, init?: RequestInit) => Promise<Response>
 }
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+import { API_ORIGIN } from './api-origin'
+
+const API_URL = API_ORIGIN
 const REQUEST_TIMEOUT_MS = 10_000
 
 class AuthRequestError extends Error {
@@ -124,6 +126,15 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
+  /**
+   * The public passport surface is intentionally anonymous. A visitor with no session must
+   * be able to read a published passport, so a failed session restore must not bounce them
+   * to the login screen; every authenticated route still redirects exactly as before.
+   */
+  // Only the single-segment public page is anonymous. A future back-office route such as
+  // `/passports` is a protected route and must keep the provider's redirect.
+  const isAnonymousRoute = /^\/passport\/[^/]+\/?$/.test(pathname ?? '')
   const tokenRef = useRef<string | null>(null)
   const refreshPromiseRef = useRef<Promise<string> | null>(null)
   const restorePromiseRef = useRef<Promise<void> | null>(null)
@@ -138,11 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokenRef.current = null
       setUser(null)
       setStatus('signed-out')
-      if (redirect) {
+      if (redirect && !isAnonymousRoute) {
         router.replace('/login')
       }
     },
-    [router],
+    [isAnonymousRoute, router],
   )
 
   const setSession = useCallback((accessToken: string, authenticatedUser: AuthUser) => {
@@ -250,6 +261,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clearSession, requestWithAccessToken])
 
   useEffect(() => {
+    // The public passport surface is anonymous: it needs no session at all, and restoring one
+    // there would rotate the browser-wide refresh cookie on a page that never reads it, which
+    // can race the signed-in tab and trip the API's refresh-reuse detection. Moving to an
+    // authenticated route re-runs this effect and restores the session then.
+    if (isAnonymousRoute) {
+      restorePromiseRef.current = null
+      return
+    }
+
     restoreMountedRef.current = true
 
     async function restoreSession() {
@@ -314,7 +334,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       restoreMountedRef.current = false
     }
-  }, [clearSession, setSession])
+  }, [clearSession, isAnonymousRoute, setSession])
 
   const login = useCallback(
     async (email: string, password: string) => {

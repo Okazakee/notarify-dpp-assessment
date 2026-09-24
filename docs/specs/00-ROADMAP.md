@@ -44,7 +44,7 @@ P0 = required functionality plus the security/testing needed to trust it. P1 = b
 | 6 | Remaining required back-office and lifecycle work: Product DELETE, Users, Settings, and the audit and soft-delete bonuses | Soft delete, audit logs | Every assessment-required route and action exists, is authorized, and is covered |
 | 7 | Docker/Compose completion and testing, migrations, seed, Swagger/OpenAPI, README, architecture document, final E2E, security checks, clean-clone validation and final reconciliation | Unit/integration/E2E evidence consolidated | Reviewer can run it and Cristian can explain critical paths |
 
-Stages 0–3 are complete, and Stages 4.1 and 4.2 are merged into `main`. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
+Stages 0–3 are complete, Stages 4.1 and 4.2 are merged into `main`, and Stage 4.3 is implemented on `build/passport-ui` awaiting acceptance. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
 
 ### Stage 4 milestones
 
@@ -52,7 +52,7 @@ Stages 0–3 are complete, and Stages 4.1 and 4.2 are merged into `main`. Stage 
 | --- | --- | --- |
 | 4.1 | Publication core: prerequisites, `POST /products/:id/publish`, stable Passport identity, immutable `PassportVersion`, retained `PassportVersionAsset` references, QR artifact generation, republish semantics, publication concurrency and idempotency | A draft publishes to an immutable version with a stable UUID and QR; a repeated or concurrent publish cannot create a duplicate version |
 | 4.2 | Public Passport API, published assets and QR: anonymous `GET /passport/:uuid`, current published projection, public access limited to assets retained by the active published version, `/q/:uuid` redirect and the QR download surface | An anonymous request returns exactly the published projection, and only assets retained by the active version are reachable |
-| 4.3 | Public Passport UI and editor Preview: anonymous responsive page carrying every required section, one shared presentation contract, the Preview tab and the publish interaction | Public page and editor preview render from the same contract, and preview reflects unpublished draft state |
+| 4.3 | Public Passport UI and editor Preview: anonymous responsive page carrying every required section, one shared presentation contract, the Preview tab and the publish interaction | Public page and editor preview render from the same contract, and preview simulates published presentation from the current unpublished draft under editor-only draft chrome |
 | 4.4 | Back-office Passports page and version history: Passports navigation, publication status, public link, QR actions, the required product-list publication actions, and internal historical version browsing | Every published passport and its retained versions are visible and actionable to an authorized user |
 | 4.5 | Passport PDF export: the current published passport, QR, required product and passport information, relevant content, safe server-side generation and download UX | A downloaded PDF matches the published version and is produced without a browser process |
 | 4.6 | Stage 4 acceptance and regression: first publish, draft edit after publication, republish, stable UUID/QR, old-version retention, public visibility, public file authorization, preview parity, historical version behaviour, PDF, responsive anonymous access and the required back-office actions | The Stage 4 acceptance matrix passes as one suite |
@@ -89,14 +89,14 @@ All nine bonuses have homes: search (05), versioning (06), soft delete (03), aud
 
 ## Decisions before implementation
 
-| Topic | Proposed default | Why it needs to be explicit |
+| Topic | Recorded decision or proposed default | Why it needs to be explicit |
 | --- | --- | --- |
 | Companies / tenancy | One company per deployment | The brief mentions companies but does not require tenant onboarding or isolation |
 | Product granularity | One serialized item per product row; SKU may repeat | SKU identifies a model; serial distinguishes instances |
 | Permissions | Both roles edit and either role may publish or republish; Admin deletes/withdraws and manages users and settings | Roles are named but their powers are unspecified |
 | Verification | Prototype/application-level verified presentation on an active published passport, clearly qualified | Publication is not proof of product authenticity or EU compliance, and no review subsystem is required to display the badge |
-| Published edits | Draft changes remain private until explicit republish | Prevent accidental public changes and preserve history |
+| Published edits | **Settled by Cristian (B10):** unsaved and saved draft changes remain private until explicit republish; UUID and QR stay stable | Prevent accidental public changes and preserve history |
 | Analytics | QR-link hits distinct from rendered passport views | A server cannot prove a camera scan occurred |
 | Regulatory goal | Assessment prototype informed by ESPR | Product-specific legal conformity is not an assessment deliverable |
 
-These defaults allow planning to continue; they are not employer instructions. Tenancy and granularity were settled before schema creation. Permission and badge semantics are now recorded in `docs/IMPLEMENTATION-DECISIONS.md` and `AGENTS.md`; the remaining open items are listed there rather than here.
+The proposed defaults are planning inputs, not employer instructions. Tenancy and granularity were settled before schema creation; publication permission, badge meaning and published-edit visibility are settled project decisions recorded in `docs/IMPLEMENTATION-DECISIONS.md` and `AGENTS.md`. The remaining open items are listed there.

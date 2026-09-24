@@ -94,6 +94,7 @@ test.describe('product assets', () => {
     await signIn(page)
     const id = await createDraft(page, 'E2E Asset Product')
 
+    await page.getByRole('tab', { name: 'Images', exact: true }).click()
     await page.setInputFiles('#cover-image', {
       name: 'cover.png',
       mimeType: 'image/png',
@@ -110,6 +111,7 @@ test.describe('product assets', () => {
     await saveDraft(page, request, id, token)
 
     await page.reload()
+    await page.getByRole('tab', { name: 'Images', exact: true }).click()
     await expect(page.locator('img[src^="blob:"]').first()).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText('cover.png')).toBeVisible()
     await expect(page.locator('#image-alt-0')).toHaveValue('Front view')
@@ -132,6 +134,7 @@ test.describe('product assets', () => {
     await signIn(page)
     const id = await createDraft(page, 'E2E Document Product')
 
+    await page.getByRole('tab', { name: 'Documents', exact: true }).click()
     await page.setInputFiles('#document-upload-MANUAL', {
       name: 'handbook.pdf',
       mimeType: 'application/pdf',
@@ -140,6 +143,7 @@ test.describe('product assets', () => {
     await expect(page.getByText('handbook.pdf')).toBeVisible({ timeout: 15_000 })
     await page.fill('#document-title-0', 'Product handbook')
 
+    await page.getByRole('tab', { name: 'Certifications', exact: true }).click()
     await page.getByRole('button', { name: 'Add certification' }).click()
     await page.fill('#certification-name-0', 'E2E Certified')
     await page.setInputFiles('#certification-pdf-0', {
@@ -153,8 +157,10 @@ test.describe('product assets', () => {
     await saveDraft(page, request, id, token)
 
     await page.reload()
+    await page.getByRole('tab', { name: 'Documents', exact: true }).click()
     await expect(page.getByText('handbook.pdf')).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('#document-title-0')).toHaveValue('Product handbook')
+    await page.getByRole('tab', { name: 'Certifications', exact: true }).click()
     await expect(page.getByText('certificate.pdf')).toBeVisible({ timeout: 15_000 })
 
     const detail = await request.get(`${API}/products/${id}`, {
@@ -170,6 +176,7 @@ test.describe('product assets', () => {
     await signIn(page)
     await createDraft(page, 'E2E Invalid Upload Product')
 
+    await page.getByRole('tab', { name: 'Images', exact: true }).click()
     await page.setInputFiles('#cover-image', {
       name: 'diagram.svg',
       mimeType: 'image/svg+xml',

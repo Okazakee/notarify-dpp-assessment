@@ -4,6 +4,8 @@
 
 `PassportView` is the explicit public projection. The public page and editor preview render the same React presentation component. Preview receives a projected draft through a protected API; public rendering receives the current published snapshot. The preview's draft indication belongs in surrounding editor chrome, not a different passport template.
 
+**Update 2026-09-24:** Stage 4.3 implemented preview deliberately differently, and the difference is settled rather than pending. Preview renders the **current editor state** — unsaved changes included — through the same presentation component and the same public field mapping, built client-side from `ProductEditorForm`; no protected draft-projection endpoint was added and `packages/api-client` stayed empty. Public rendering is unchanged: the current immutable published snapshot. Both surfaces share one structure, section order, labels and field formatting. The draft adapter simulates the eventual Published / prototype Verified presentation, including its qualified badge, while the editor-only banner identifies the content as unpublished. Before first publication UUID, creation date, version and last published date are placeholders; public URL and QR download are unavailable. Known metadata from an actual publication may be shown, but Preview never invents a next version or performs a publication write. See sections B9 and B10 of `docs/IMPLEMENTATION-DECISIONS.md`.
+
 PDF uses the same view data but an independently designed print layout. Exact HTML/PDF visual parity is not promised or required.
 
 ## Required public content
@@ -19,7 +21,7 @@ PDF uses the same view data but an independently designed print layout. Exact HT
 | Images | Cover and gallery |
 | Passport metadata | UUID, creation date, version, status and verification status |
 
-The page is responsive and readable without authentication. Core published content should render without client JavaScript; analytics enhancement can be separate. Historical versions are back-office-only in the proposed scope.
+The page is responsive and readable without authentication. Core published content should render without client JavaScript; analytics enhancement can be separate. Historical versions are back-office-only by recorded decision (B10); anonymous routes expose only the current version, with no public historical-version route planned.
 
 ## QR decision
 
@@ -28,6 +30,8 @@ Use the `qrcode` package (`soldair/node-qrcode`) server-side for PNG and optiona
 Create UUIDs with Node's built-in cryptographic UUID facility. Do not introduce a UUID dependency solely for this operation.
 
 Proposed QR target: `https://<configured-origin>/q/{uuid}`. Nest records a QR-link hit, then sends a non-cacheable redirect to the canonical HTML `/passport/{uuid}`. The brief's passport route is preserved; the extra redirect separates QR-link traffic from ordinary page views. The server cannot prove the hit came from a physical scan: copies, bots and direct requests can use the same link.
+
+**Update 2026-09-24:** the resolver is implemented and currently records **nothing**: `GET /q/{uuid}` returns the `302`, and the QR download returns the stored bytes, neither of which writes an analytics row or an `AuditEvent`. Recording `QR_HIT` is Stage 5 work; see section B8 of `docs/IMPLEMENTATION-DECISIONS.md`.
 
 The QR artifact is automatically generated on first publication and retained/reproducible for downloads. Do not count every download or regeneration as another unique QR. Keep the origin in validated configuration, not a client-supplied Host header. An origin change needs redirects or regeneration; printed QR stability is an operational responsibility.
 

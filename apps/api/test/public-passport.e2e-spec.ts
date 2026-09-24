@@ -416,6 +416,9 @@ describe('Public published assets', () => {
     expect(image.headers['x-content-type-options']).toBe('nosniff')
     expect(image.headers['cache-control']).toBe('no-store')
     expect(image.headers['content-length']).toBe(String((image.body as Buffer).length))
+    // The web origin embeds these bytes and is not necessarily the API origin, so a
+    // same-origin CORP would be refused by the browser before the image could render.
+    expect(image.headers['cross-origin-resource-policy']).toBe('cross-origin')
 
     const pdf = await download(published.publicUuid, published.documentAssetId)
     expect(pdf.headers['content-type']).toBe('application/pdf')
@@ -423,6 +426,7 @@ describe('Public published assets', () => {
     expect(pdf.headers['x-content-type-options']).toBe('nosniff')
     expect(pdf.headers['cache-control']).toBe('no-store')
     expect(pdf.headers['content-length']).toBe(String((pdf.body as Buffer).length))
+    expect(pdf.headers['cross-origin-resource-policy']).toBe('cross-origin')
   })
 
   it('refuses assets that are not retained by the current published version', async () => {
@@ -544,6 +548,7 @@ describe('Public QR artifact and redirect', () => {
     )
     expect(response.headers['x-content-type-options']).toBe('nosniff')
     expect(response.headers['cache-control']).toBe('no-store')
+    expect(response.headers['cross-origin-resource-policy']).toBe('cross-origin')
     expect(response.headers['content-length']).toBe(String((response.body as Buffer).length))
     // Byte-for-byte the stored artifact: the QR is never regenerated on download.
     expect(Buffer.from(response.body as Buffer).equals(Buffer.from(stored.qrPngBytes))).toBe(true)

@@ -50,15 +50,21 @@ test.describe('product drafts', () => {
     await page.fill('#origin-country', 'IT')
     await page.selectOption('#product-category-select', { index: 1 })
 
+    // The editor is tabbed: a section's controls only become actionable once its tab is
+    // selected. Tab order, keyboard operation and state preservation are covered by
+    // e2e/passport-ui.spec.ts.
+    await page.getByRole('tab', { name: 'Materials', exact: true }).click()
     await page.getByRole('button', { name: 'Add material' }).click()
     await page.fill('#material-name-0', 'Recycled aluminium')
     await page.fill('#material-percentage-0', '60')
     await page.fill('#material-country-0', 'DE')
 
+    await page.getByRole('tab', { name: 'Sustainability', exact: true }).click()
     await page.getByRole('button', { name: /add sustainability details/i }).click()
     await page.fill('#carbon-kg', '12.5')
     await page.fill('#water-litres', '340')
 
+    await page.getByRole('tab', { name: 'Certifications', exact: true }).click()
     await page.getByRole('button', { name: 'Add certification' }).click()
     await page.fill('#certification-name-0', 'E2E Certificate')
     await page.fill('#certification-authority-0', 'E2E Authority')
