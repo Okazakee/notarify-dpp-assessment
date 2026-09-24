@@ -601,3 +601,37 @@ Recorded as observations rather than defects: the view advertises a QR target de
 **Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has exercised the public surface. The QR has not been scanned with a physical phone: that needs the visual public page, which is Stage 4.3, and the redirect target intentionally still 404s. No public caching exists, so no cache-invalidation behaviour was tested. No analytics were written, so no scan or view recording was tested. The public surface has no rate limiting.
 
 **Result.** A published passport is anonymously readable through an explicit projection of its current immutable version, its published assets are downloadable only while the current version retains them, its stored QR artifact is served unchanged and independently verified to decode to the configured target, and a scan reaches the backend resolver through a narrow web-origin bridge. The branch awaits Cristian's decision; it has not been merged, and Stage 4.3 has not been started.
+
+---
+
+## 2026-09-24 — Stage 4.2 integration (Gate 8)
+
+**Scope.** Gate 8 integration of the accepted Stage 4.2 tip only. No next milestone and no new feature. The only source change in this round is the documentation reconciliation the end-of-pass gate requires, because `AGENTS.md`, the README, the roadmap and section B8 still described Stage 4.2 as unmerged. No application code, schema, migration, test or configuration was touched, and Stage 4.3 was not started.
+
+**AI participation.** Pi performed the pre-merge verification, the merge, the CI gate, the reconciliation and the branch cleanup on the `opencode-go/deepseek-v4.1-flash` route. No subagent was used in this round and no external model participated.
+
+**Human review.** Decision/scope review: Cristian explicitly approved the accepted tip `313dbfc835257b52a3e419574333bf40124001c0` for integration into `main` and instructed this Gate 8 pass, including the pre-merge truth check, the preserve list and the deferred observations. Manual validation: not performed by Cristian. Source-code review: still intentionally deferred until the complete project is built. Milestone acceptance is a decision, not source-code review.
+
+**Decisions.** No new product or architecture decision. The integration followed the recorded workflow: a direct `--no-ff` merge with no pull request, no squash and no rebase, CI required on the resulting `main` commit before the branch is removed, and the accepted public-surface contract left unchanged.
+
+**Work performed.** Verified the starting state (`origin/main` equal to `8542082111bc88f52a623ac9b441aecbbb574f48`, the branch equal to `origin/build/public-passport-api` at `313dbfc`, a clean worktree, a merge base equal to the main tip, and no commit on `main` absent from the branch), confirmed CI run `35907545052` had completed successfully on that exact branch SHA, synchronized `main`, merged `build/public-passport-api` into `main` as `a27a4b13` with `--no-ff`, pushed `main`, required green CI on that exact merge commit, then reconciled the four stale current-state statements so the repository no longer describes Stage 4.2 as awaiting acceptance.
+
+**Findings / rejected approaches.** The first `git push` was rejected by the local `pre-push` hook, which runs `pnpm check`: the integration suite failed in every suite because the disposable PostgreSQL container `notarify-pg-test` had been stopped, so nothing was listening on the `localhost:55432` that `DATABASE_URL` targets. This was environmental, not a regression — both parents were already green on their own commits. The container was restarted and the hook then passed on its own terms; the hook was **not** bypassed with `--no-verify`. Rejected: treating the accepted tip as sufficient authority to skip the merge-commit CI gate; squashing or rebasing, which would have detached the accepted SHA from the published history; deleting the milestone branch before, rather than after, successful integration CI; and rewriting the Stage 4.2 round's closing sentence, which stays as the historical statement of the state at that time and is superseded by this round rather than edited.
+
+**Validation evidence.**
+
+| Item | Value |
+| --- | --- |
+| Pre-merge `main` | `8542082111bc88f52a623ac9b441aecbbb574f48` (CI run `35903341811`, success) |
+| Branch HEAD integrated | `313dbfc835257b52a3e419574333bf40124001c0` |
+| Branch CI before integration | run `35907545052`, workflow `CI`, **success**, `head_sha` equal to the branch HEAD |
+| Merge commit | `a27a4b1307440cf2da162d65ccded6c8a2316ed9` (`--no-ff`, two parents) |
+| Local `pnpm check` on the merge commit | **passes** — 80 files linted with no fixes applied, both workspaces typecheck and build, 6 suites / 110 of 110 integration tests against PostgreSQL 18.6 |
+| CI on the merge commit | run `36017618829`, workflow `CI`, **success**, `head_sha` equal to `a27a4b13` — 80 files linted, 6 suites / 110 of 110 integration tests against a fresh PostgreSQL 18.6 service, 10 of 10 Playwright tests, and `pnpm audit` reporting no known vulnerabilities |
+| Reachability | `313dbfc8` is an ancestor of the final `main`, and all four branch commits are present in it |
+| Migrations | no migration was added, changed or created by this pass |
+| Application behaviour change | none |
+
+**Not validated / deferred.** Human source-code review remains deferred until the complete project is built, and no human has exercised the public surface. Everything the Stage 4.2 round listed as deferred is still deferred, and the observations it recorded remain open and were deliberately not resolved during integration: no public caching or Redis, no anonymous rate limiting, no policy for regenerating an already printed QR after an origin migration, no physical phone scan, no `410 Gone` lifecycle tombstone, no quarantine-state transition locking, and no public historical-version route.
+
+**Result.** Stage 4.2 is integrated into `main`. Capability: an anonymous read surface projecting a published passport's current immutable version, published-asset downloads authorized by retention from that current version, the stored QR artifact served unchanged, a `302` resolver and a narrow web-origin bridge, and no analytics. Stage 4.3 has not been started and requires a fresh Cristian instruction with its own Gate 0 and Gate 1.

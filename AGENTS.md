@@ -10,7 +10,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.1 (publication core) is merged into `main`.**
 
-**Stage 4.2 (public passport API, published assets and QR) is implemented on `build/public-passport-api` and is not yet merged.** It awaits Cristian's acceptance. The public passport page and the remaining Stage 4 milestones are not implemented.
+**Stage 4.2 (public passport API, published assets and QR) is merged into `main`.** The public passport page and the remaining Stage 4 milestones are not implemented.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -59,7 +59,7 @@ Not implemented, and not to be assumed: product delete/withdraw, the visual publ
 - Every public response is `no-store`; there is no public caching yet.
 - The web `/q/:uuid` bridge is a single-segment rewrite to the configured API origin, so it cannot proxy arbitrary paths or hosts.
 
-Verified on 2026-09-23 on this branch: `pnpm check` passes (80 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 10 of 10 against the built stack; `pnpm audit` reports no known vulnerabilities.
+Verified on 2026-09-23 on `build/public-passport-api`, and re-verified on the merged `main` on 2026-09-24: `pnpm check` passes (80 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 10 of 10 against the built stack; `pnpm audit` reports no known vulnerabilities. CI is green on the merge commit `a27a4b13` (run `36017618829`).
 
 ## The specs are authoritative
 

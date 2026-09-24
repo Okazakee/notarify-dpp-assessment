@@ -143,7 +143,7 @@ Recorded 2026-09-23 and implemented, merged into `main`.
 
 ### B8. Public passport surface decisions (Stage 4.2)
 
-Recorded 2026-09-23 and implemented on `build/public-passport-api`.
+Recorded 2026-09-23 and implemented, merged into `main`.
 
 | Decision | Value |
 | --- | --- |
