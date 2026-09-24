@@ -3,18 +3,16 @@ import { decodeQrPng } from '../apps/api/test/qr-decode.ts'
 import { E2E_EMAIL, E2E_PASSWORD } from './global-setup.ts'
 
 /**
- * End-to-end proof that a printed QR code reaches the backend resolver.
+ * End-to-end proof that a printed QR code reaches the real public passport page.
  *
  * The QR encodes the **web** origin (`PUBLIC_APP_ORIGIN`), not the API origin, so this
  * exercises the whole chain a phone would follow: decode the artifact the application
- * actually stored, request that exact URL from the Next server, and confirm the narrow
- * `/q/:uuid` bridge hands it to Nest, which answers with the canonical page location.
+ * actually stored, request that exact URL from the Next server, confirm the narrow
+ * `/q/:uuid` bridge hands it to Nest, which answers with the canonical page location, and
+ * finally follow that redirect to the public passport page Stage 4.3 added.
  *
  * The decoder is imported from the API workspace so it resolves its own dependencies
  * there; it is test-only tooling and never part of the application.
- *
- * The redirect target `/passport/:uuid` is not expected to exist yet — that page is
- * Stage 4.3. This test deliberately does not follow the redirect.
  */
 
 const API = 'http://localhost:3000'
@@ -39,7 +37,8 @@ startxref
 )
 
 test.describe('published QR reaches the backend resolver', () => {
-  test('decodes the stored QR and follows its exact URL through the web origin', async ({
+  test('decodes the stored QR and follows its exact URL through to the public page', async ({
+    page,
     request,
   }) => {
     const login = await request.post(`${API}/auth/login`, {
@@ -114,6 +113,14 @@ test.describe('published QR reaches the backend resolver', () => {
     expect(bridged.status()).toBe(302)
     expect(bridged.headers().location).toBe(`${WEB}/passport/${publicUuid}`)
     expect(bridged.headers()['cache-control']).toBe('no-store')
+
+    // Now follow the redirect the way a phone's browser would, and prove the decoded URL
+    // really lands on the public passport page for this exact passport.
+    await page.goto(decoded)
+    await expect(page).toHaveURL(`${WEB}/passport/${publicUuid}`)
+    await expect(page.getByTestId('passport-product-name')).toHaveText('E2E QR product')
+    await expect(page.getByTestId('passport-uuid')).toHaveText(publicUuid)
+    await expect(page.getByTestId('verification-badge')).toHaveText('Verified Product')
 
     // The public projection is anonymously readable at the API origin too.
     const view = await request.get(`${API}/passport/${publicUuid}`)
