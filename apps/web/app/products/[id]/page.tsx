@@ -3,9 +3,15 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../auth-context'
 import { LogoutButton } from '../../logout-button'
+import {
+  type DraftPreviewPublication,
+  toDraftPresentationModel,
+} from '../../passport/draft-preview'
+import { DOCUMENT_KIND_LABELS, PassportPresentation } from '../../passport/presentation'
+import { useAssetObjectUrls } from '../../passport/use-asset-object-urls'
 import {
   type AuthenticatedRequest,
   describeApiError,
@@ -29,6 +35,7 @@ import type {
   ProductDocument,
   ProductEditorForm,
   ProductImage,
+  ProductStatus,
   Sustainability,
   SustainabilityDraft,
 } from '../types'
@@ -38,12 +45,8 @@ const MAX_GALLERY_IMAGES = 12
 const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp'
 const PDF_ACCEPT = 'application/pdf'
 
-const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
-  MANUAL: 'Manual',
-  WARRANTY: 'Warranty',
-  TECHNICAL_DATASHEET: 'Technical datasheet',
-}
-
+// Document-kind labels live with the shared presentation contract, so the editor and the
+// public passport page can never disagree about what a kind is called.
 const DOCUMENT_KINDS: DocumentKind[] = ['MANUAL', 'WARRANTY', 'TECHNICAL_DATASHEET']
 
 const EMPTY_FORM: ProductEditorForm = {
@@ -59,6 +62,126 @@ const EMPTY_FORM: ProductEditorForm = {
   certifications: [],
   images: [],
   documents: [],
+}
+
+/**
+ * The seven assessment-required editor tabs, in the required order.
+ *
+ * Each panel keeps the markup it already had; only the visible tab travels. Inactive
+ * panels are hidden rather than unmounted, so switching tabs can never lose entered data
+ * and can never trigger a save.
+ */
+type EditorTab =
+  | 'general'
+  | 'materials'
+  | 'sustainability'
+  | 'certifications'
+  | 'documents'
+  | 'images'
+  | 'preview'
+
+const EDITOR_TABS: Array<{ id: EditorTab; label: string }> = [
+  { id: 'general', label: 'General Information' },
+  { id: 'materials', label: 'Materials' },
+  { id: 'sustainability', label: 'Sustainability' },
+  { id: 'certifications', label: 'Certifications' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'images', label: 'Images' },
+  { id: 'preview', label: 'Preview' },
+]
+
+/**
+ * Maps a publication gap named by the API onto the tab that owns that field.
+ *
+ * Ordered most-specific first: a gap such as "certification 1 name" must resolve to
+ * Certifications, not to the General Information rule that also matches `name`.
+ */
+const PUBLICATION_GAP_TABS: Array<{ match: RegExp; tab: EditorTab }> = [
+  { match: /certification/i, tab: 'certifications' },
+  { match: /material/i, tab: 'materials' },
+  { match: /sustainability/i, tab: 'sustainability' },
+  { match: /cover image/i, tab: 'images' },
+  {
+    match: /name|sku|serial|category|description|production date|country of origin/i,
+    tab: 'general',
+  },
+]
+
+function firstTabForPublicationGaps(message: string): EditorTab | null {
+  for (const rule of PUBLICATION_GAP_TABS) {
+    if (rule.match.test(message)) {
+      return rule.tab
+    }
+  }
+  return null
+}
+
+function EditorTabList({ tab, onSelect }: { tab: EditorTab; onSelect: (next: EditorTab) => void }) {
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  function selectAt(index: number) {
+    const entry = EDITOR_TABS[index]
+    if (entry === undefined) {
+      return
+    }
+    onSelect(entry.id)
+    buttonRefs.current[index]?.focus()
+  }
+
+  function move(delta: number) {
+    const current = EDITOR_TABS.findIndex((entry) => entry.id === tab)
+    selectAt((current + delta + EDITOR_TABS.length) % EDITOR_TABS.length)
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Product editor sections"
+      aria-orientation="horizontal"
+      className="mt-6 flex flex-wrap gap-1 rounded-box border border-base-300 bg-base-100 p-1"
+    >
+      {EDITOR_TABS.map((entry, index) => {
+        const selected = entry.id === tab
+        return (
+          <button
+            key={entry.id}
+            ref={(node) => {
+              buttonRefs.current[index] = node
+            }}
+            // Never a submit button: these live above the draft form and must not save it.
+            type="button"
+            role="tab"
+            id={`tab-${entry.id}`}
+            aria-selected={selected}
+            aria-controls={`panel-${entry.id}`}
+            tabIndex={selected ? 0 : -1}
+            data-testid={`editor-tab-${entry.id}`}
+            onClick={() => onSelect(entry.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowRight') {
+                event.preventDefault()
+                move(1)
+              } else if (event.key === 'ArrowLeft') {
+                event.preventDefault()
+                move(-1)
+              } else if (event.key === 'Home') {
+                event.preventDefault()
+                selectAt(0)
+              } else if (event.key === 'End') {
+                event.preventDefault()
+                selectAt(EDITOR_TABS.length - 1)
+              }
+            }}
+            className={`btn btn-sm min-w-0 flex-1 whitespace-nowrap focus:outline-2 focus:outline-offset-2 focus:outline-primary ${
+              selected ? 'btn-primary' : 'btn-ghost'
+            }`}
+          >
+            {entry.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 type ConflictState = {
@@ -140,6 +263,30 @@ function isProductDetail(value: unknown): value is ProductDetail {
     Array.isArray(candidate.images) &&
     Array.isArray(candidate.documents) &&
     (candidate.sustainability === null || typeof candidate.sustainability === 'object')
+  )
+}
+
+type PublishResult = {
+  publicUuid: string
+  versionNumber: number
+  publicUrl: string
+  publishedAt: string
+  firstPublishedAt: string
+  replayed: boolean
+}
+
+function isPublishResult(value: unknown): value is PublishResult {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Partial<PublishResult>
+  return (
+    typeof candidate.publicUuid === 'string' &&
+    typeof candidate.versionNumber === 'number' &&
+    typeof candidate.publicUrl === 'string' &&
+    typeof candidate.publishedAt === 'string' &&
+    typeof candidate.firstPublishedAt === 'string' &&
+    typeof candidate.replayed === 'boolean'
   )
 }
 
@@ -560,8 +707,49 @@ export default function ProductEditorPage() {
   const [conflict, setConflict] = useState<ConflictState | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [tab, setTab] = useState<EditorTab>('general')
+  const [savedPayloadKey, setSavedPayloadKey] = useState<string | null>(null)
+  const [productStatus, setProductStatus] = useState<ProductStatus>('DRAFT')
+  const [publication, setPublication] = useState<DraftPreviewPublication | null>(null)
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishNotice, setPublishNotice] = useState<string | null>(null)
 
   const coverImage = findCoverImage(form.images)
+
+  /**
+   * Dirty state is derived from the canonical save payload, not from object identity, so
+   * re-creating the same form value never marks the draft dirty.
+   */
+  const currentPayloadKey = useMemo(() => JSON.stringify(toSavePayload(form)), [form])
+  const isDirty = savedPayloadKey !== null && currentPayloadKey !== savedPayloadKey
+
+  // Private draft assets are only fetched while the Preview tab is actually on screen.
+  const previewImageAssetIds = useMemo(
+    () => (tab === 'preview' ? form.images.map((image) => image.assetId) : []),
+    [tab, form.images],
+  )
+  const previewImageSrcs = useAssetObjectUrls(request, previewImageAssetIds)
+
+  const previewCategoryName = useMemo(
+    () => categories.find((category) => category.id === form.categoryId)?.name ?? null,
+    [categories, form.categoryId],
+  )
+
+  const previewModel = useMemo(
+    () =>
+      toDraftPresentationModel({
+        form,
+        categoryName: previewCategoryName,
+        // The account exposes no company display name to the editor, so Preview is explicit
+        // that this line is a placeholder rather than a real brand value.
+        brandDisplayName: 'Your company name',
+        status: productStatus,
+        publication,
+        imageSrcs: previewImageSrcs,
+      }),
+    [form, previewCategoryName, productStatus, publication, previewImageSrcs],
+  )
 
   const nextClientId = useCallback((prefix: string): string => {
     keyCounter.current += 1
@@ -579,6 +767,10 @@ export default function ProductEditorPage() {
           throw new ProductApiError(502, 'The API returned invalid product data.')
         }
         setDraftRevision(payload.draftRevision)
+        setProductStatus(payload.status)
+        // The baseline always tracks the latest server state, so both a discarded refetch and
+        // a "keep my changes" refetch leave the dirty calculation correct.
+        setSavedPayloadKey(JSON.stringify(toSavePayload(fromDetail(payload))))
         if (replaceForm) {
           setForm(fromDetail(payload))
         }
@@ -905,8 +1097,11 @@ export default function ProductEditorPage() {
       if (!isProductDetail(payload)) {
         throw new ProductApiError(502, 'The API returned invalid product data.')
       }
+      const savedForm = fromDetail(payload)
       setDraftRevision(payload.draftRevision)
-      setForm(fromDetail(payload))
+      setProductStatus(payload.status)
+      setForm(savedForm)
+      setSavedPayloadKey(JSON.stringify(toSavePayload(savedForm)))
       setSaveError(null)
     } catch (requestError: unknown) {
       if (requestError instanceof ProductApiError && requestError.status === 409) {
@@ -922,6 +1117,87 @@ export default function ProductEditorPage() {
       }
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handlePublish() {
+    setPublishError(null)
+    setPublishNotice(null)
+
+    if (conflict !== null) {
+      setPublishError('Choose how to resolve the stale draft before publishing.')
+      return
+    }
+    if (draftRevision === null) {
+      setPublishError(
+        'The current draft revision is unavailable. Refetch the product and try again.',
+      )
+      return
+    }
+    // Publishing is never combined with saving: the revision the operator reviewed must be
+    // the revision that gets published.
+    if (isDirty) {
+      setPublishError(
+        'Save the draft before publishing, so the published revision is the one you reviewed.',
+      )
+      return
+    }
+
+    setIsPublishing(true)
+    try {
+      const response = await request(`/products/${productId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedDraftRevision: draftRevision }),
+      })
+      const payload = await readApiResponse<unknown>(response)
+      if (!isPublishResult(payload)) {
+        throw new ProductApiError(502, 'The API returned invalid publication data.')
+      }
+      setProductStatus('PUBLISHED')
+      setPublication({
+        publicUuid: payload.publicUuid,
+        version: payload.versionNumber,
+        publicUrl: payload.publicUrl,
+        publishedAt: payload.publishedAt,
+        creationDate: payload.firstPublishedAt,
+      })
+      setPublishNotice(
+        payload.replayed
+          ? `This revision is already published as v${payload.versionNumber}; the public passport is unchanged.`
+          : `Published as v${payload.versionNumber}. The public passport now shows this revision.`,
+      )
+    } catch (requestError: unknown) {
+      if (
+        requestError instanceof ProductApiError &&
+        requestError.code === 'PRODUCT_REVISION_CONFLICT'
+      ) {
+        // Same contract as a stale save: never publish a revision the operator did not review.
+        setConflict({
+          message:
+            'This draft changed elsewhere. Your entered data is still here. Choose whether to use your changes on the latest revision or discard them.',
+        })
+      } else if (
+        requestError instanceof ProductApiError &&
+        (requestError.code === 'PUBLICATION_INCOMPLETE' ||
+          requestError.code === 'PUBLICATION_ASSET_UNAVAILABLE' ||
+          requestError.code === 'PUBLICATION_ASSET_TYPE_INVALID')
+      ) {
+        setPublishError(requestError.message)
+        const owningTab = firstTabForPublicationGaps(requestError.message)
+        if (owningTab !== null) {
+          setTab(owningTab)
+        }
+      } else {
+        setPublishError(
+          describeApiError(
+            requestError,
+            'Unable to publish this product. Your draft is unchanged.',
+          ),
+        )
+      }
+    } finally {
+      setIsPublishing(false)
     }
   }
 
@@ -1065,10 +1341,48 @@ export default function ProductEditorPage() {
           </p>
         ) : null}
 
+        <EditorTabList tab={tab} onSelect={setTab} />
+
+        {publishError !== null ? (
+          <p className="alert alert-error mt-4" role="alert" data-testid="publish-error">
+            {publishError}
+          </p>
+        ) : null}
+
+        {publishNotice !== null ? (
+          <div
+            className="alert alert-success mt-4 items-start"
+            role="status"
+            data-testid="publish-notice"
+          >
+            <div className="min-w-0">
+              <p className="font-semibold">{publishNotice}</p>
+              {publication !== null ? (
+                <p className="mt-2 text-sm">
+                  <a
+                    className="link"
+                    href={publication.publicUrl}
+                    data-testid="publish-public-link"
+                  >
+                    Open the public passport
+                  </a>{' '}
+                  <span className="break-all font-mono text-xs">{publication.publicUrl}</span>
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         <form className="mt-6 space-y-6" onSubmit={handleSave}>
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="general-heading"
+            role="tabpanel"
+            id="panel-general"
+            aria-labelledby="tab-general"
+            data-tab-panel="general"
+            hidden={tab !== 'general'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'general' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div>
@@ -1184,8 +1498,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="images-heading"
+            role="tabpanel"
+            id="panel-images"
+            aria-labelledby="tab-images"
+            data-tab-panel="images"
+            hidden={tab !== 'images'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'images' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div>
@@ -1333,8 +1653,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="documents-heading"
+            role="tabpanel"
+            id="panel-documents"
+            aria-labelledby="tab-documents"
+            data-tab-panel="documents"
+            hidden={tab !== 'documents'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'documents' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div>
@@ -1462,8 +1788,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="materials-heading"
+            role="tabpanel"
+            id="panel-materials"
+            aria-labelledby="tab-materials"
+            data-tab-panel="materials"
+            hidden={tab !== 'materials'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'materials' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1616,8 +1948,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="sustainability-heading"
+            role="tabpanel"
+            id="panel-sustainability"
+            aria-labelledby="tab-sustainability"
+            data-tab-panel="sustainability"
+            hidden={tab !== 'sustainability'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'sustainability' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1755,8 +2093,14 @@ export default function ProductEditorPage() {
           </section>
 
           <section
-            className="card border border-base-300 bg-base-100 shadow-sm"
-            aria-labelledby="certifications-heading"
+            role="tabpanel"
+            id="panel-certifications"
+            aria-labelledby="tab-certifications"
+            data-tab-panel="certifications"
+            hidden={tab !== 'certifications'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'certifications' ? '' : 'hidden'
+            }`}
           >
             <div className="card-body gap-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1937,20 +2281,81 @@ export default function ProductEditorPage() {
             </div>
           </section>
 
+          <section
+            role="tabpanel"
+            id="panel-preview"
+            aria-labelledby="tab-preview"
+            data-tab-panel="preview"
+            hidden={tab !== 'preview'}
+            className={`card border border-base-300 bg-base-100 shadow-sm ${
+              tab === 'preview' ? '' : 'hidden'
+            }`}
+          >
+            <div className="card-body gap-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 id="preview-heading" className="card-title">
+                  Preview
+                </h2>
+                <span className="badge badge-warning badge-sm" data-testid="preview-banner">
+                  Draft preview — unpublished editor state
+                </span>
+              </div>
+              <p className="text-sm text-base-content/70">
+                This renders the current editor contents through the same presentation component the
+                public passport page uses. It includes changes you have not saved yet, and it is not
+                the published passport.
+              </p>
+              <div
+                className="rounded-box border border-base-300 bg-base-200 p-4"
+                data-testid="preview-panel"
+              >
+                <PassportPresentation model={previewModel} />
+              </div>
+            </div>
+          </section>
+
           <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-box border border-base-300 bg-base-100/95 p-4 shadow-lg backdrop-blur">
-            <p className="text-sm text-base-content/70">
-              Save sends revision {draftRevision ?? '—'}.
-            </p>
-            <button
-              type="submit"
-              className="btn btn-primary min-w-36 focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-              disabled={isSaving || isLoading || conflict !== null}
-            >
-              {isSaving ? (
-                <span className="loading loading-spinner loading-sm" aria-hidden="true" />
-              ) : null}
-              {isSaving ? 'Saving...' : 'Save draft'}
-            </button>
+            <div className="text-sm text-base-content/70">
+              <p>Save sends revision {draftRevision ?? '—'}.</p>
+              <p className="mt-1 text-xs" data-testid="dirty-state">
+                {isDirty ? 'Unsaved changes — save before publishing.' : 'No unsaved changes.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="submit"
+                className="btn btn-primary min-w-36 focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                disabled={isSaving || isLoading || conflict !== null}
+              >
+                {isSaving ? (
+                  <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+                ) : null}
+                {isSaving ? 'Saving...' : 'Save draft'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary min-w-36 focus:outline-2 focus:outline-offset-2 focus:outline-secondary"
+                data-testid="publish-button"
+                onClick={() => void handlePublish()}
+                disabled={
+                  isPublishing ||
+                  isSaving ||
+                  isLoading ||
+                  isDirty ||
+                  conflict !== null ||
+                  draftRevision === null
+                }
+              >
+                {isPublishing ? (
+                  <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+                ) : null}
+                {isPublishing
+                  ? 'Publishing...'
+                  : productStatus === 'PUBLISHED'
+                    ? 'Republish'
+                    : 'Publish'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
