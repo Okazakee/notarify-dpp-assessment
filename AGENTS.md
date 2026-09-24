@@ -88,7 +88,7 @@ Rules:
 
 **Locked:** deployment tenancy (one company per deployment) and product granularity (one serialized item per `Product`). See section B2 of [docs/IMPLEMENTATION-DECISIONS.md](docs/IMPLEMENTATION-DECISIONS.md).
 
-**Recorded but deliberately unimplemented:** publishing is **not** Admin-only. An Editor may publish and republish. No code may gate publish to `ADMIN` until that decision is recorded as final, and the publish permission itself is not implemented anywhere yet.
+**Recorded and implemented:** publishing is **not** Admin-only. An Editor may publish and republish. `POST /products/:id/publish` is deliberately role-agnostic: it requires an authenticated actor, and no code gates publish to `ADMIN`.
 
 Still open: permission semantics beyond publishing, published-edit visibility, analytics definitions and retention, session lifetimes, audit retention. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
 
@@ -100,7 +100,7 @@ Settled and recorded, so do not re-open them from a spec: **verification badge m
 
 ## Module boundaries
 
-- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth`, `src/products` and `src/assets`; the generated Prisma client lives in `src/generated` and is not committed.
+- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth`, `src/products`, `src/assets`, `src/publication` and `src/public-passport`; the generated Prisma client lives in `src/generated` and is not committed.
 - `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow, the product list and the product draft editor.
 - `packages/api-client` — reserved for generated API types; **still empty**.
 - `prisma` — schema, migrations, `seed.ts` (run with `pnpm db:seed`) and `verification/invariant-checks.sql`.

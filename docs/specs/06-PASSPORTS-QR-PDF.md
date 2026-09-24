@@ -29,6 +29,8 @@ Create UUIDs with Node's built-in cryptographic UUID facility. Do not introduce 
 
 Proposed QR target: `https://<configured-origin>/q/{uuid}`. Nest records a QR-link hit, then sends a non-cacheable redirect to the canonical HTML `/passport/{uuid}`. The brief's passport route is preserved; the extra redirect separates QR-link traffic from ordinary page views. The server cannot prove the hit came from a physical scan: copies, bots and direct requests can use the same link.
 
+**Update 2026-09-24:** the resolver is implemented and currently records **nothing**: `GET /q/{uuid}` returns the `302`, and the QR download returns the stored bytes, neither of which writes an analytics row or an `AuditEvent`. Recording `QR_HIT` is Stage 5 work; see section B8 of `docs/IMPLEMENTATION-DECISIONS.md`.
+
 The QR artifact is automatically generated on first publication and retained/reproducible for downloads. Do not count every download or regeneration as another unique QR. Keep the origin in validated configuration, not a client-supplied Host header. An origin change needs redirects or regeneration; printed QR stability is an operational responsibility.
 
 Use a high-contrast code with an intact quiet zone and no logo overlay. Test the exported image by decoding it independently, following its URL and scanning from a real phone. Do not consider an image snapshot sufficient proof of scannability.
