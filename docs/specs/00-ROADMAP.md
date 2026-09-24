@@ -89,14 +89,14 @@ All nine bonuses have homes: search (05), versioning (06), soft delete (03), aud
 
 ## Decisions before implementation
 
-| Topic | Proposed default | Why it needs to be explicit |
+| Topic | Recorded decision or proposed default | Why it needs to be explicit |
 | --- | --- | --- |
 | Companies / tenancy | One company per deployment | The brief mentions companies but does not require tenant onboarding or isolation |
 | Product granularity | One serialized item per product row; SKU may repeat | SKU identifies a model; serial distinguishes instances |
 | Permissions | Both roles edit and either role may publish or republish; Admin deletes/withdraws and manages users and settings | Roles are named but their powers are unspecified |
 | Verification | Prototype/application-level verified presentation on an active published passport, clearly qualified | Publication is not proof of product authenticity or EU compliance, and no review subsystem is required to display the badge |
-| Published edits | Draft changes remain private until explicit republish | Prevent accidental public changes and preserve history |
+| Published edits | **Settled by Cristian (B10):** unsaved and saved draft changes remain private until explicit republish; UUID and QR stay stable | Prevent accidental public changes and preserve history |
 | Analytics | QR-link hits distinct from rendered passport views | A server cannot prove a camera scan occurred |
 | Regulatory goal | Assessment prototype informed by ESPR | Product-specific legal conformity is not an assessment deliverable |
 
-These defaults allow planning to continue; they are not employer instructions. Tenancy and granularity were settled before schema creation. Permission and badge semantics are now recorded in `docs/IMPLEMENTATION-DECISIONS.md` and `AGENTS.md`; the remaining open items are listed there rather than here.
+The proposed defaults are planning inputs, not employer instructions. Tenancy and granularity were settled before schema creation; publication permission, badge meaning and published-edit visibility are settled project decisions recorded in `docs/IMPLEMENTATION-DECISIONS.md` and `AGENTS.md`. The remaining open items are listed there.

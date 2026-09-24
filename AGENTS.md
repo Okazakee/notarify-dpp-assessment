@@ -77,6 +77,8 @@ Verified on 2026-09-23 on `build/public-passport-api`, and re-verified on the me
 
 Verified on 2026-09-24 on `build/passport-ui`: `pnpm check` passes (89 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 24 of 24 against the built stack; `pnpm audit` reports no known vulnerabilities. CI is green on `7550600` (run `36027931967`): 89 files linted, 6 suites / 110 of 110 integration tests against a fresh PostgreSQL 18.6 service, 24 of 24 Playwright tests and no known vulnerabilities.
 
+Stage 4.3 Gate 7 correction locally verified on 2026-09-24: `pnpm check` passes (89 files linted, both workspaces typecheck and build, 6 integration suites / 110 tests); `pnpm test:e2e` passes 25 of 25; `pnpm audit` reports no known vulnerabilities. Final-branch CI is required on the new HEAD and is not implied by the earlier Stage 4.3 run.
+
 ## The specs are authoritative
 
 `docs/specs/` is the single source of truth. Start at [00-ROADMAP.md](docs/specs/00-ROADMAP.md).
@@ -161,7 +163,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts` and `apps/api/test/public-passport.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (6 suites, 110 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts` and `e2e/public-passport.spec.ts` and `e2e/passport-ui.spec.ts` via `pnpm test:e2e` (24 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts` and `apps/api/test/public-passport.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (6 suites, 110 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts` and `e2e/public-passport.spec.ts` and `e2e/passport-ui.spec.ts` via `pnpm test:e2e` (25 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.
