@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   createContext,
   type ReactNode,
@@ -126,6 +126,13 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
+  /**
+   * The public passport surface is intentionally anonymous. A visitor with no session must
+   * be able to read a published passport, so a failed session restore must not bounce them
+   * to the login screen; every authenticated route still redirects exactly as before.
+   */
+  const isAnonymousRoute = pathname?.startsWith('/passport') ?? false
   const tokenRef = useRef<string | null>(null)
   const refreshPromiseRef = useRef<Promise<string> | null>(null)
   const restorePromiseRef = useRef<Promise<void> | null>(null)
@@ -140,11 +147,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokenRef.current = null
       setUser(null)
       setStatus('signed-out')
-      if (redirect) {
+      if (redirect && !isAnonymousRoute) {
         router.replace('/login')
       }
     },
-    [router],
+    [isAnonymousRoute, router],
   )
 
   const setSession = useCallback((accessToken: string, authenticatedUser: AuthUser) => {
