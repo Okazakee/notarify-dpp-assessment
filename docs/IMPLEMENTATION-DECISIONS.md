@@ -164,6 +164,26 @@ Recorded 2026-09-23 and implemented, merged into `main`.
 | Analytics | None. No `AnalyticsEvent` or `AnalyticsDaily` write, and no IP or user-agent parsing. Stage 5 owns those definitions. |
 | QR decode evidence | A test-only `jsqr` decoder (devDependency, Apache-2.0) decodes the real stored artifact, proving the payload equals the configured target. It is never a runtime dependency. |
 
+### B9. Public Passport UI, editor Preview and Publish UX (Stage 4.3)
+
+Recorded 2026-09-24 and implemented on `build/passport-ui`.
+
+| Decision | Value |
+| --- | --- |
+| Public page rendering | The web `/passport/:uuid` page is a Server Component. It reads only the anonymous `GET /passport/:uuid` with `cache: 'no-store'`, so the published product name and passport metadata are present in the returned HTML rather than assembled after hydration. Every unavailable lifecycle state renders one shared not-found page; `PASSPORT_UNAVAILABLE` renders a generic unavailable state and never the stored snapshot or backend JSON. |
+| Preview data source | Preview is built client-side from the current `ProductEditorForm` and rendered through the same presentation component as the public page, so it shows unsaved changes. It deliberately does not call `GET /passport/:uuid` — that is the published version, not the draft — and no protected draft-projection endpoint was added. |
+| Shared presentation | One `PassportPresentation` component with one explicit display model and two adapters: the public `PassportView` projection and the editor draft. The model holds no fetching, no editor chrome and no fabricated publication records. |
+| Preview identity | Values that cannot exist before publication are explicit placeholders, never fabricated identifiers. Preview never claims published or verified status; the real public UUID and version appear only once the editor has published in that session. |
+| Draft asset preview | Draft images are fetched through the authenticated `GET /assets/:id` route into `blob:` object URLs, revoked on supersede and on unmount, and only while the Preview tab is open. No draft asset is made public to make Preview work, and document/certification PDFs are shown as attachment metadata rather than minted download URLs. |
+| Brand logo | The public header brand mark is bundled local markup. `Company.logoAssetId` stays unused, with no logo upload and no Settings dependency. |
+| Verification presentation | `Verified Product` stays a prototype/application-level indicator and is accompanied by visible text stating that it is not a legal certification, proof of authenticity, an ESPR compliance statement or an EU registration. |
+| Editor structure | Seven tabs in the assessment's required order, panels hidden rather than unmounted, one selected tab at a time, roving tabindex with arrow/Home/End navigation, and panel DOM order matching tab order. |
+| Client validation | The form is `noValidate` and the editor's own validation governs, so a blocked save always reports a message and reveals the tab and the field that owns it. The API stays authoritative. |
+| Dirty state | Dirty compares the canonical save payload with the last known server baseline, never object identity, and the baseline advances on load, on save and on both stale-conflict resolutions. Unsaved work also blocks navigation away. |
+| Publishing | `POST /products/:id/publish` is called with `expectedDraftRevision` only. A dirty draft, an in-flight upload or an unresolved stale revision blocks Publish/Republish instead of publishing implicitly, and a publish-time `PRODUCT_REVISION_CONFLICT` follows the same resolution path as a stale save. `PUBLICATION_INCOMPLETE` keeps the form and switches to the tab owning the first reported gap. |
+| Cross-origin bytes | The public binary routes declare `Cross-Origin-Resource-Policy: cross-origin`, because Helmet's global `same-origin` makes the browser refuse a cross-origin `img` outright (`ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`). The authenticated asset route keeps `same-origin`. |
+| Public session handling | The public Passport surface neither requires nor restores a session: it does not refresh the browser-wide cookie there, does not redirect an anonymous visitor to login, and only the single-segment `/passport/:uuid` route is exempt. |
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.

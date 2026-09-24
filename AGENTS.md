@@ -10,7 +10,9 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.1 (publication core) is merged into `main`.**
 
-**Stage 4.2 (public passport API, published assets and QR) is merged into `main`.** The public passport page and the remaining Stage 4 milestones are not implemented.
+**Stage 4.2 (public passport API, published assets and QR) is merged into `main`.**
+
+**Stage 4.3 (public Passport UI, editor Preview and Publish UX) is implemented on `build/passport-ui` and is not yet merged.** The anonymous public Passport page, the shared presentation component, the seven-tab editor, the draft Preview and the Publish/Republish interaction exist; the remaining Stage 4 milestones do not.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -23,7 +25,7 @@ Implemented:
 - **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, the visual public passport page, Passport PDF export, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
+Not implemented, and not to be assumed: product delete/withdraw, the back-office Passports page and version history, Passport PDF export, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
 
 ### Proven asset invariants — do not weaken
 
@@ -59,7 +61,21 @@ Not implemented, and not to be assumed: product delete/withdraw, the visual publ
 - Every public response is `no-store`; there is no public caching yet.
 - The web `/q/:uuid` bridge is a single-segment rewrite to the configured API origin, so it cannot proxy arbitrary paths or hosts.
 
+### Proven public UI and editor invariants — do not weaken
+
+- The web `/passport/:uuid` page is anonymous and server-rendered from the API's `PassportView`: the published product name and passport metadata are in the returned HTML, not assembled after hydration. It reads no authenticated product or draft endpoint.
+- The public page and the editor Preview render **one** presentation component from one display model. A second, visually similar implementation is not acceptable.
+- Preview renders the **current editor state**, unsaved changes included, and never the current published version. It is wrapped in editor-only chrome and never presented as published or verified.
+- Draft assets stay private: Preview images are fetched through the authenticated `GET /assets/:id` route into `blob:` object URLs, which are always revoked. Public asset URLs always resolve to the published-asset route on the configured API origin, never to `/assets/:id`.
+- Publishing requires a clean, saved draft. Unsaved changes, an in-flight upload or an unresolved stale revision block Publish/Republish instead of being published implicitly, and the publish body carries only `expectedDraftRevision`.
+- The editor has exactly seven tabs — General Information, Materials, Sustainability, Certifications, Documents, Images, Preview — with roving tabindex and arrow/Home/End navigation. Switching tabs never saves and never loses entered data, and a blocked save reveals the tab that owns the invalid field.
+- Dirty state compares the canonical save payload against the last known server baseline, never object identity, and the baseline advances on load, on save and on both stale-conflict resolutions.
+- Public binary responses (`/passport/:uuid/assets/:assetId`, `/passport/:uuid/qr.png`) declare `Cross-Origin-Resource-Policy: cross-origin`, because the web origin is not necessarily the API origin. The authenticated `GET /assets/:id` route keeps `same-origin`.
+- The public Passport surface neither requires nor restores a session, and an unauthenticated visitor there is never redirected to the login screen.
+
 Verified on 2026-09-23 on `build/public-passport-api`, and re-verified on the merged `main` on 2026-09-24: `pnpm check` passes (80 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 10 of 10 against the built stack; `pnpm audit` reports no known vulnerabilities. CI is green on the merge commit `a27a4b13` (run `36017618829`).
+
+Verified on 2026-09-24 on `build/passport-ui`: `pnpm check` passes (89 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 24 of 24 against the built stack; `pnpm audit` reports no known vulnerabilities.
 
 ## The specs are authoritative
 
@@ -101,7 +117,7 @@ Settled and recorded, so do not re-open them from a spec: **verification badge m
 ## Module boundaries
 
 - `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth`, `src/products`, `src/assets`, `src/publication` and `src/public-passport`; the generated Prisma client lives in `src/generated` and is not committed.
-- `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow, the product list and the product draft editor.
+- `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow, the product list, the seven-tab product draft editor with its draft Preview and Publish action, and the anonymous public Passport page.
 - `packages/api-client` — reserved for generated API types; **still empty**.
 - `prisma` — schema, migrations, `seed.ts` (run with `pnpm db:seed`) and `verification/invariant-checks.sql`.
 - `fixtures` — reserved for fictional sample assets; **still empty**. Deterministic seed data currently lives in `prisma/seed.ts`.
@@ -145,7 +161,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts` and `apps/api/test/public-passport.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (6 suites, 110 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts` and `e2e/public-passport.spec.ts` via `pnpm test:e2e` (10 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts` and `apps/api/test/public-passport.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (6 suites, 110 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts` and `e2e/public-passport.spec.ts` and `e2e/passport-ui.spec.ts` via `pnpm test:e2e` (24 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.

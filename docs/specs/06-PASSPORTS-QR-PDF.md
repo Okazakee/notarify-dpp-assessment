@@ -4,6 +4,8 @@
 
 `PassportView` is the explicit public projection. The public page and editor preview render the same React presentation component. Preview receives a projected draft through a protected API; public rendering receives the current published snapshot. The preview's draft indication belongs in surrounding editor chrome, not a different passport template.
 
+**Update 2026-09-24:** Stage 4.3 implemented preview deliberately differently, and the difference is settled rather than pending. Preview renders the **current editor state** — unsaved changes included — through the same presentation component and the same public field mapping, built client-side from `ProductEditorForm`; no protected draft-projection endpoint was added and `packages/api-client` stayed empty. Public rendering is unchanged: the current immutable published snapshot. Both surfaces therefore share one structure, one section order, one set of labels and one field formatting; only the data source and the resolved asset URLs differ. See section B9 of `docs/IMPLEMENTATION-DECISIONS.md`.
+
 PDF uses the same view data but an independently designed print layout. Exact HTML/PDF visual parity is not promised or required.
 
 ## Required public content
