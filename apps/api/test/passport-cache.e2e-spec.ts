@@ -256,15 +256,31 @@ describe('Immutable content caching', () => {
 
     const cached = await redis.get(key)
     expect(cached).not.toBeNull()
-    const parsed = JSON.parse(cached as string) as { product: { name: string } }
-    expect(parsed.product.name).toBe('Cache warm-up')
+    const parsed = JSON.parse(cached as string) as {
+      schema: number
+      digest: string
+      content: { product: { name: string } }
+    }
+    expect(parsed.schema).toBe(PASSPORT_CONTENT_CACHE_SCHEMA)
+    expect(parsed.digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(parsed.content.product.name).toBe('Cache warm-up')
 
     const ttl = await redis.ttl(key)
     expect(ttl).toBeGreaterThan(0)
     expect(ttl).toBeLessThanOrEqual(300)
 
-    // A second read answers from the cache: changing the stored snapshot behind it must
-    // not change what is served until the entry is gone.
+    // A hit is proved by changing only what the cache holds: the stored snapshot is
+    // untouched, so if the API answers with this injected name it can only have read the
+    // cache. The digest still matches the selected snapshot, so the entry is trusted.
+    parsed.content.product.name = 'Served from the cache'
+    await redis.set(key, JSON.stringify(parsed))
+
+    const fromCache = await getPassport(published.publicUuid)
+    expect(fromCache.status).toBe(200)
+    expect(fromCache.body.product.name).toBe('Served from the cache')
+
+    // Changing the stored snapshot invalidates the entry instead of being masked by it:
+    // the digest no longer matches, so PostgreSQL is read and the entry is dropped.
     await prisma.passportVersion.update({
       where: { id: published.versionId },
       data: {
@@ -280,12 +296,11 @@ describe('Immutable content caching', () => {
       },
     })
 
-    const fromCache = await getPassport(published.publicUuid)
-    expect(fromCache.status).toBe(200)
-    expect(fromCache.body.product.name).toBe('Cache warm-up')
+    const afterSnapshotChange = await getPassport(published.publicUuid)
+    expect(afterSnapshotChange.status).toBe(200)
+    expect(afterSnapshotChange.body.product.name).toBe('Changed behind the cache')
 
-    // With the entry removed, the same request reads PostgreSQL and sees the change,
-    // which proves the previous response really came from Redis.
+    // With the entry removed, the same request reads PostgreSQL and sees the same change.
     await redis.del(key)
     const fromDatabase = await getPassport(published.publicUuid)
     expect(fromDatabase.status).toBe(200)
@@ -298,7 +313,15 @@ describe('Immutable content caching', () => {
     const published = await publishProduct(token, await createCategory(), 'Corruption proof')
     const key = cacheKey(published.passportId, published.versionId)
 
-    await redis.set(key, '{"product":{"name":42},"brand":null}')
+    // A well-formed envelope whose content has the wrong shape.
+    await redis.set(
+      key,
+      JSON.stringify({
+        schema: PASSPORT_CONTENT_CACHE_SCHEMA,
+        digest: 'x',
+        content: { product: { name: 42 } },
+      }),
+    )
     const fromCorrupt = await getPassport(published.publicUuid)
     expect(fromCorrupt.status).toBe(200)
     expect(fromCorrupt.body.product.name).toBe('Corruption proof')
@@ -307,13 +330,58 @@ describe('Immutable content caching', () => {
     const afterRepair = await redis.get(key)
     expect(afterRepair).not.toBeNull()
     expect(JSON.parse(afterRepair as string)).toMatchObject({
-      product: { name: 'Corruption proof' },
+      content: { product: { name: 'Corruption proof' } },
     })
 
     await redis.set(key, 'not json at all')
     const fromUnparseable = await getPassport(published.publicUuid)
     expect(fromUnparseable.status).toBe(200)
     expect(fromUnparseable.body.product.name).toBe('Corruption proof')
+
+    // An entry written by another schema is not current content either.
+    await redis.set(
+      key,
+      JSON.stringify({
+        schema: PASSPORT_CONTENT_CACHE_SCHEMA + 1,
+        digest: 'x',
+        content: { product: { name: 'From another deployment' } },
+      }),
+    )
+    const fromOtherSchema = await getPassport(published.publicUuid)
+    expect(fromOtherSchema.status).toBe(200)
+    expect(fromOtherSchema.body.product.name).toBe('Corruption proof')
+  })
+
+  it('never serves a valid-looking entry that belongs to another version', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const categoryId = await createCategory()
+    const first = await publishProduct(token, categoryId, 'First version')
+
+    // Cache v1, then keep its entry so it can be planted under v2's key later.
+    expect((await getPassport(first.publicUuid)).status).toBe(200)
+    const firstEntry = await redis.get(cacheKey(first.passportId, first.versionId))
+    expect(firstEntry).not.toBeNull()
+
+    const updated = await request(app.getHttpServer())
+      .patch(`/products/${first.productId}`)
+      .set(auth(token))
+      .send({ name: 'Second version', expectedDraftRevision: first.draftRevision })
+    expect(updated.status).toBe(200)
+    const republished = await request(app.getHttpServer())
+      .post(`/products/${first.productId}/publish`)
+      .set(auth(token))
+      .send({ expectedDraftRevision: updated.body.draftRevision })
+    expect(republished.status).toBe(200)
+    const secondVersionId = republished.body.versionId as string
+
+    // v1's perfectly valid content is planted under v2's key. It passes shape validation
+    // but is bound to a different snapshot, so it must never be served.
+    await redis.set(cacheKey(first.passportId, secondVersionId), firstEntry as string)
+    const response = await getPassport(first.publicUuid)
+    expect(response.status).toBe(200)
+    expect(response.body.product.name).toBe('Second version')
+    expect(response.body.passport.version).toBe(2)
   })
 
   it('serves correct content when Redis is unreachable, within a bounded time', async () => {

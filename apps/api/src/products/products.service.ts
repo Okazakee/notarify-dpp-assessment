@@ -190,7 +190,9 @@ export class ProductsService {
         return result
       })
 
-      return this.mapDetail(saved, await this.totalViewsForProduct(saved))
+      // A product created by this transaction cannot have a published Passport yet, so
+      // its view total is a measured zero rather than a query result.
+      return this.mapDetail(saved, 0)
     } catch (error) {
       this.handleMutationError(error, input.serialNumber)
     }
@@ -359,10 +361,21 @@ export class ProductsService {
         if (!result) {
           throw this.productNotFound()
         }
-        return result
+
+        // The view total is read inside the transaction on purpose. Reading it after the
+        // commit could fail *after* the revision had already advanced, answering a saved
+        // update with an error and leaving the client to meet a revision conflict on
+        // retry. Here the save and the response that describes it commit together.
+        const passportId = this.activePassportId(result)
+        const totalViews =
+          passportId === null
+            ? 0
+            : ((await this.analytics.totalViewsByPassport([passportId], tx)).get(passportId) ?? 0)
+
+        return { product: result, totalViews }
       })
 
-      return this.mapDetail(saved, await this.totalViewsForProduct(saved))
+      return this.mapDetail(saved.product, saved.totalViews)
     } catch (error) {
       this.handleMutationError(error, input.serialNumber)
     }

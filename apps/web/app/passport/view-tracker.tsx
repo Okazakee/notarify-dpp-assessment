@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { API_ORIGIN } from '../api-origin'
 
 /** Bounded retries: enough to survive a transient failure, not an endless loop. */
@@ -30,6 +30,10 @@ export function PassportViewTracker({
   version: number
 }) {
   const recordedRef = useRef(false)
+  // One key per mounted navigation, created once and reused by every retry *and* by any
+  // repeated effect run (React's development Strict Mode invokes effects twice), so a
+  // re-run cannot mint a second key and be counted twice.
+  const [eventKey] = useState(() => crypto.randomUUID())
 
   useEffect(() => {
     if (recordedRef.current) {
@@ -38,8 +42,6 @@ export function PassportViewTracker({
 
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
-    // Generated once per navigation; every retry sends this same value.
-    const eventKey = crypto.randomUUID()
 
     async function send(attempt: number): Promise<void> {
       if (cancelled || recordedRef.current) {
@@ -95,7 +97,7 @@ export function PassportViewTracker({
         clearTimeout(retryTimer)
       }
     }
-  }, [publicUuid, version])
+  }, [eventKey, publicUuid, version])
 
   return null
 }

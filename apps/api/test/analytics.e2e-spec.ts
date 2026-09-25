@@ -440,6 +440,36 @@ describe('VIEW ingestion', () => {
     expect(afterRetry.count).toBe(1)
   })
 
+  it('accepts concurrent retries of one key exactly once', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const published = await publishProduct(token, await createCategory())
+    const eventKey = randomUUID()
+
+    // The same navigation retried in parallel — a flaky network, a double tap, two
+    // workers. The conflict-safe insert must let exactly one of them count.
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        request(app.getHttpServer())
+          .post(`/passport/${published.publicUuid}/view`)
+          .send({ eventKey, version: published.versionNumber }),
+      ),
+    )
+    for (const response of responses) {
+      expect(response.status).toBe(204)
+    }
+
+    expect(
+      await prisma.analyticsEvent.count({
+        where: { passportId: published.passportId, kind: 'VIEW' },
+      }),
+    ).toBe(1)
+    const daily = await prisma.analyticsDaily.findFirstOrThrow({
+      where: { passportId: published.passportId, kind: 'VIEW' },
+    })
+    expect(daily.count).toBe(1)
+  })
+
   it('counts a distinct navigation key again', async () => {
     const fixture = await createFixture()
     const token = await login(fixture)

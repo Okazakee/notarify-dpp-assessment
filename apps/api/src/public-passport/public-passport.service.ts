@@ -111,13 +111,13 @@ export class PublicPassportService {
     publicSnapshot: unknown
   }): Promise<PassportContent> {
     const key = this.cache.key({ passportId: active.passportId, versionId: active.versionId })
-    const cached = await this.cache.read(key)
+    const cached = await this.cache.read(key, active.publicSnapshot)
     if (cached !== null) {
       return cached
     }
 
     const content = buildPassportContent({ snapshot: active.publicSnapshot })
-    await this.cache.write(key, content)
+    await this.cache.write(key, content, active.publicSnapshot)
     return content
   }
 

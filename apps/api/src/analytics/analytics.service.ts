@@ -372,16 +372,21 @@ export class AnalyticsService {
    * Non-synthetic view counts for the given passports, in one bounded query.
    *
    * Callers pass only currently active passports. This exists so a product list can show
-   * a real Total Views column without issuing a query per row.
+   * a real Total Views column without issuing a query per row. `client` lets a caller run
+   * it inside its own transaction, so a mutation's response and its committed write stay
+   * consistent instead of depending on a query issued after the commit.
    */
-  async totalViewsByPassport(passportIds: string[]): Promise<Map<string, number>> {
+  async totalViewsByPassport(
+    passportIds: string[],
+    client: Pick<PrismaService, 'analyticsDaily'> = this.prisma,
+  ): Promise<Map<string, number>> {
     if (passportIds.length === 0) {
       return new Map()
     }
 
-    const rows = await this.prisma.analyticsDaily.groupBy({
-      by: ['passportId'],
+    const rows = await client.analyticsDaily.groupBy({
       where: { passportId: { in: passportIds }, kind: 'VIEW', synthetic: false },
+      by: ['passportId'],
       _sum: { count: true },
     })
 

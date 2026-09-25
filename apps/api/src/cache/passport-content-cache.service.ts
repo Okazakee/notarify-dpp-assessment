@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { createClient, type RedisClientType } from '@redis/client'
@@ -24,6 +25,34 @@ const COMMAND_TIMEOUT_MS = 1_000
 
 /** One outage must not become one log line per request. */
 const FAILURE_LOG_INTERVAL_MS = 30_000
+
+/** A cached entry is untrusted input; bound it before parsing it. */
+const MAX_CACHED_PAYLOAD_BYTES = 512 * 1024
+
+/** The stored envelope: the schema, the snapshot it was derived from, and the content. */
+type CachedEntry = {
+  schema: number
+  digest: string
+  content: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/**
+ * A digest of the exact immutable snapshot a cached entry was derived from.
+ *
+ * Shape validation alone would let a well-formed payload that belongs to a *different*
+ * passport or version be served if it ever appeared under this key. Binding the entry to
+ * the snapshot PostgreSQL just selected for the current version removes that possibility:
+ * a mismatched entry is discarded and the stored snapshot is interpreted instead.
+ */
+function snapshotDigest(snapshot: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(snapshot) ?? 'null')
+    .digest('hex')
+}
 
 /**
  * The disposable cache for the immutable content of a published Passport version.
@@ -87,7 +116,7 @@ export class PassportContentCache implements OnModuleDestroy {
   }
 
   /** Reads validated content, or `null` for a miss, a disabled cache or any failure. */
-  async read(key: string): Promise<PassportContent | null> {
+  async read(key: string, snapshot: unknown): Promise<PassportContent | null> {
     const client = this.client
     if (client === null) {
       return null
@@ -100,15 +129,22 @@ export class PassportContentCache implements OnModuleDestroy {
         return null
       }
 
-      const parsed = parsePassportContent(safeJsonParse(raw))
-      if (parsed === null) {
-        // A corrupt or foreign payload is never served; drop it and fall back.
-        this.logger.warn('Discarding an unreadable cached Passport content entry')
+      if (raw.length > MAX_CACHED_PAYLOAD_BYTES) {
+        this.logger.warn('Discarding an oversized cached Passport content entry')
         await this.delete(key)
         return null
       }
 
-      return parsed
+      const entry = parseCachedEntry(raw)
+      if (entry === null || entry.digest !== snapshotDigest(snapshot)) {
+        // The entry is unreadable, was written by another schema, or does not belong to
+        // the version PostgreSQL just selected. None of those may be served.
+        this.logger.warn('Discarding a cached Passport content entry that does not match')
+        await this.delete(key)
+        return null
+      }
+
+      return entry.content
     } catch (error) {
       this.logFailure('cache read failed', error)
       return null
@@ -116,7 +152,7 @@ export class PassportContentCache implements OnModuleDestroy {
   }
 
   /** Stores content best-effort. A failure is a cache miss later, never a request error. */
-  async write(key: string, content: PassportContent): Promise<void> {
+  async write(key: string, content: PassportContent, snapshot: unknown): Promise<void> {
     const client = this.client
     if (client === null) {
       return
@@ -124,9 +160,14 @@ export class PassportContentCache implements OnModuleDestroy {
 
     try {
       await this.ensureConnected(client)
+      const entry: CachedEntry = {
+        schema: PASSPORT_CONTENT_CACHE_SCHEMA,
+        digest: snapshotDigest(snapshot),
+        content,
+      }
       await client
         .withCommandOptions({ timeout: COMMAND_TIMEOUT_MS })
-        .set(key, JSON.stringify(content), {
+        .set(key, JSON.stringify(entry), {
           expiration: { type: 'EX', value: this.ttlSeconds },
         })
     } catch (error) {
@@ -237,4 +278,18 @@ function safeJsonParse(value: string): unknown {
   } catch {
     return null
   }
+}
+
+/** Validates the stored envelope, including the content shape it carries. */
+function parseCachedEntry(raw: string): { digest: string; content: PassportContent } | null {
+  const parsed = safeJsonParse(raw)
+  if (!isRecord(parsed) || parsed.schema !== PASSPORT_CONTENT_CACHE_SCHEMA) {
+    return null
+  }
+  if (typeof parsed.digest !== 'string') {
+    return null
+  }
+
+  const content = parsePassportContent(parsed.content)
+  return content === null ? null : { digest: parsed.digest, content }
 }

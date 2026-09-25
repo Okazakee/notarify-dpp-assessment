@@ -1062,8 +1062,8 @@ test.describe('Stage 4 acceptance lifecycle', () => {
       }
     }
 
-    // The daily aggregates agree with the raw rows, per kind: the transactional rollup
-    // cannot drift from what was actually recorded.
+    // The daily aggregates agree with the raw rows in both directions: every recorded
+    // kind has its bucket, and no bucket exists without the rows behind it.
     const daily = await withDb(async (client) => {
       const { rows } = await client.query<{ kind: string; total: number }>(
         `SELECT "kind"::text AS kind, sum("count")::int AS total FROM "AnalyticsDaily"
@@ -1076,8 +1076,12 @@ test.describe('Stage 4 acceptance lifecycle', () => {
       ['QR_HIT', afterScan.qrHits],
       ['VIEW', afterScan.views],
     ])
+    for (const [kind, total] of expected) {
+      expect(daily.find((row) => row.kind === kind)?.total ?? 0).toBe(total)
+    }
+    // No bucket exists for a kind with no raw rows, and no kind is missing one.
     for (const row of daily) {
-      expect(row.total).toBe(expected.get(row.kind))
+      expect(expected.get(row.kind)).toBe(row.total)
     }
   })
 

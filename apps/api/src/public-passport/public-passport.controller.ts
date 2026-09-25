@@ -45,6 +45,15 @@ type PublicAnalyticsRequest = ParsedRequest & {
 }
 
 /**
+ * How long a QR redirect is willing to wait for its scan to be recorded.
+ *
+ * Recording is best-effort and must never gate the redirect, so the write is awaited only
+ * within this budget: a slow or wedged analytics insert delays the scan by at most this,
+ * and the write continues in the background while the redirect already happened.
+ */
+const QR_RECORD_BUDGET_MS = 250
+
+/**
  * The anonymous public passport surface.
  *
  * Deliberately has no guard, no cookie requirement and no session: everything it serves
@@ -259,11 +268,17 @@ export class PublicPassportController {
             publicUuid: uuid,
           })
         ) {
-          await this.passports.recordQrHit({
-            passportId: scan.passportId,
-            versionId: scan.versionId,
-            metadata,
-          })
+          // Bounded, not awaited indefinitely: see `QR_RECORD_BUDGET_MS`.
+          await Promise.race([
+            this.passports.recordQrHit({
+              passportId: scan.passportId,
+              versionId: scan.versionId,
+              metadata,
+            }),
+            new Promise<void>((resolve) => {
+              setTimeout(resolve, QR_RECORD_BUDGET_MS)
+            }),
+          ])
         }
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'unknown error'
