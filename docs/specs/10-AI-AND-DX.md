@@ -115,7 +115,7 @@ Run the exact applicable quality gates: schema validation where relevant, lint, 
 
 **Gate 4 addition.** A meaningful implementation pass is not considered fully validated until applicable local validation passes **and** the final pushed branch HEAD has green CI.
 
-**Gate 8 addition.** After an accepted milestone is merged with `--no-ff` into `main`: push `main`, require CI on the resulting `main` commit to pass, then prove milestone reachability, then delete the completed local and remote milestone branch.
+**Gate 8 addition.** After an accepted milestone is merged with `--no-ff` into `main`, the merge commit and the merged-state documentation/worklog commit are pushed **together in one push**, and one CI run is required on the exact final `main` HEAD: it validates the integrated runtime and the reconciled repository state in a single run. Only after that run passes are milestone reachability proven and the completed local and remote milestone branch deleted.
 
 ### Gate 5 — end-of-pass repository truthfulness reconciliation (mandatory)
 
@@ -143,15 +143,19 @@ The adopted integration sequence:
 2. Complete Gates 0–6 on that branch.
 3. Stop at Gate 7.
 4. Cristian explicitly accepts or rejects the milestone.
-5. On acceptance, Pi performs the merge directly:
+5. On acceptance, with the accepted branch already green on its exact HEAD, Pi performs the integration locally and pushes once:
    - switch to `main` and fetch/update it;
    - verify no unexpected divergence;
    - `git merge --no-ff <milestone-branch>`;
-   - push `main`, then verify local and remote `main` agree;
+   - perform the mandatory merged-state documentation and worklog reconciliation **locally** and commit it separately, so the merge commit and the reconciliation remain separate commits;
+   - push `main` **once**, carrying both commits, then verify local and remote `main` agree;
+   - require one CI run on the exact final `main` HEAD, which validates the integrated runtime together with the reconciled repository state;
    - prove the milestone tip is reachable from `main`;
    - delete the completed milestone branch locally and remotely;
    - stop.
 6. The next milestone begins only on a new explicit Cristian instruction, with a fresh Gate 0 and Gate 1.
+
+Pushing the merge commit on its own and reconciling documentation in a later push is superseded: it produced two runs of the same validation for one integration. The merge commit and the reconciliation stay separate commits, and they travel in one push. Non-trivial runtime conflicts are resolved locally, with appropriate local validation, before that push; the authoritative CI is still the one on final `main`. There is no `paths-ignore`, `[skip ci]`, docs-only CI exception or weaker validation rule, and branch deletion still happens only after the final `main` run is green.
 
 There is no permanent `develop` branch, no mandatory pull request, no chain in which an unmerged milestone branches from another, no automatic creation of the next milestone branch, no squash merge for accepted milestones, and no rebase of accepted milestone history for cosmetic cleanup. A normal `--no-ff` merge is the default because it preserves the meaningful commits inside the milestone and gives the milestone a clear boundary on `main`, without pull-request ceremony that would add no decision authority in a solo repository.
 
