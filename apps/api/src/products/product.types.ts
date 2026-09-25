@@ -68,6 +68,30 @@ export type ProductListItem = {
   draftRevision: number
   createdAt: string
   updatedAt: string
+  /**
+   * The current draft cover asset, or `null`.
+   *
+   * Only the id is exposed; the bytes stay behind the authenticated `GET /assets/:id`
+   * route, so the list never carries binary content and a draft cover never becomes
+   * public through a list response.
+   */
+  coverImageAssetId: string | null
+  /**
+   * Current publication metadata, or `null` when the product has never been published.
+   *
+   * This is fetched with the list query itself, never one request per row. The identity
+   * of what is published lives on the passport list; this block is only what the product
+   * table needs to render its publication actions and state.
+   */
+  passport: {
+    publicUuid: string
+    publicUrl: string
+    qrDownloadUrl: string
+    currentVersionNumber: number
+    sourceDraftRevision: number
+    hasUnpublishedChanges: boolean
+    currentPublishedAt: string
+  } | null
 }
 
 export type ProductDetail = ProductListItem & {

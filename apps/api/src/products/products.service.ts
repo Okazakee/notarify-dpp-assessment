@@ -1,8 +1,10 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { isUUID } from 'class-validator'
 import { assetKindForMime } from '../assets/asset-processing.js'
 import { AssetsService } from '../assets/assets.service.js'
 import { ApiException } from '../common/api-exception.js'
+import type { AppEnvironment } from '../config/configuration.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { PublishableDraft } from '../publication/publication.types.js'
@@ -71,7 +73,17 @@ const PRODUCT_DETAIL_INCLUDE = {
     orderBy: DOCUMENT_ORDER,
     include: { asset: { select: ASSET_SUMMARY_SELECT } },
   },
-  passport: { select: { withdrawnAt: true } },
+  passport: {
+    select: {
+      id: true,
+      publicUuid: true,
+      withdrawnAt: true,
+      firstPublishedAt: true,
+      currentVersion: {
+        select: { versionNumber: true, sourceDraftRevision: true, publishedAt: true },
+      },
+    },
+  },
 }
 
 type ProductWithDetails = Prisma.ProductGetPayload<{
@@ -105,6 +117,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly assets: AssetsService,
+    private readonly config: ConfigService<AppEnvironment, true>,
   ) {}
 
   async listCategories(): Promise<Array<{ id: string; stableCode: string; name: string }>> {
@@ -1017,6 +1030,11 @@ export class ProductsService {
   private mapListItem(product: ProductWithDetails): ProductListItem {
     const status: ProductStatus =
       product.passport !== null && product.passport.withdrawnAt === null ? 'PUBLISHED' : 'DRAFT'
+    const cover = product.images.find((image) => image.role === 'COVER')
+    const currentVersion =
+      product.passport !== null && product.passport.withdrawnAt === null
+        ? product.passport.currentVersion
+        : null
     return {
       id: product.id,
       name: product.name,
@@ -1028,7 +1046,26 @@ export class ProductsService {
       draftRevision: product.draftRevision,
       createdAt: product.createdAt.toISOString(),
       updatedAt: product.updatedAt.toISOString(),
+      // The draft cover, not a published one: this column describes the product row the
+      // operator is looking at, and the bytes stay behind `GET /assets/:id`.
+      coverImageAssetId: cover?.assetId ?? null,
+      passport:
+        currentVersion === null || product.passport === null
+          ? null
+          : {
+              publicUuid: product.passport.publicUuid,
+              publicUrl: `${this.publicAppOrigin()}/passport/${product.passport.publicUuid}`,
+              qrDownloadUrl: `/passport/${product.passport.publicUuid}/qr.png`,
+              currentVersionNumber: currentVersion.versionNumber,
+              sourceDraftRevision: currentVersion.sourceDraftRevision,
+              hasUnpublishedChanges: product.draftRevision > currentVersion.sourceDraftRevision,
+              currentPublishedAt: currentVersion.publishedAt.toISOString(),
+            },
     }
+  }
+
+  private publicAppOrigin(): string {
+    return this.config.getOrThrow<string>('PUBLIC_APP_ORIGIN')
   }
 
   private parseDateOnly(value: string | null | undefined): Date | null {
