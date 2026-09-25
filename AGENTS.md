@@ -18,7 +18,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.5 (Passport PDF export) is merged into `main`.**
 
-**Stage 4.6 (full Stage 4 acceptance and regression) is implemented and locally validated on `build/stage4-acceptance`; it is not merged yet.** The evidence map is [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md): one cross-milestone lifecycle journey plus the existing focused suites prove Stage 4 as one subsystem, while the physical handset scan, Cristian's manual UI walkthrough and human source-code review remain explicitly unvalidated manual items.
+**Stage 4.6 (full Stage 4 acceptance and regression) is merged into `main`.** The evidence map is [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md): one cross-milestone lifecycle journey plus the existing focused suites prove Stage 4 as one subsystem, while the physical handset scan, Cristian's manual UI walkthrough and human source-code review remain explicitly unvalidated manual items. Stage 4.6 added no production runtime change.
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -123,7 +123,7 @@ Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm chec
 
 Stage 4.5 locally verified on 2026-09-25 on `build/passport-pdf`: `pnpm check` passes (110 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 145 of 145 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 38 of 38 against the built stack; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `94d36de` passed CI run `36154972651`. The `--no-ff` merge commit is `1867a670987a873988153b247e07d1e3c7e7f4a9`, and the merged `main` passed CI run `36156162845` (lint, typecheck, build, 145 integration tests against a fresh PostgreSQL 18.6 service, 38 Playwright tests and dependency audit).
 
-Stage 4.6 locally verified on 2026-09-25 on `build/stage4-acceptance`: `pnpm check` passes (112 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 146 of 146 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 49 of 49 against the built stack, including the 11-case Stage 4 acceptance journey; `pnpm audit` reports no known vulnerabilities. Those runs are local evidence only until the branch HEAD has green CI.
+Stage 4.6 locally verified on 2026-09-25 on `build/stage4-acceptance`: `pnpm check` passes (112 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 146 of 146 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 49 of 49 against the built stack, including the 11-case Stage 4 acceptance journey; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `8fcf08e` passed CI run `36162682815`. The `--no-ff` merge commit is `b734a5e5e5385da7a25c718107841d437439fabd`, and the merged `main` passed CI run `36163976849` (lint, typecheck, build, 146 integration tests against a fresh PostgreSQL 18.6 service, 49 Playwright tests and dependency audit).
 
 ## The specs are authoritative
 
