@@ -69,6 +69,8 @@ export function toDraftPresentationModel(input: DraftPreviewInput): PassportPres
       verificationStatus: 'VERIFIED',
       publicUrl: publication?.publicUrl ?? null,
       qrDownloadUrl: null,
+      // Preview never publishes, so it never advertises an export of a published version.
+      pdfDownloadUrl: null,
     },
     brand: { displayName: input.brandDisplayName },
     product: {

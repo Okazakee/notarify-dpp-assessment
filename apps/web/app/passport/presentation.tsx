@@ -35,6 +35,8 @@ export type PassportPresentationModel = {
     verificationStatus: 'VERIFIED' | null
     publicUrl: string | null
     qrDownloadUrl: string | null
+    /** The exported PDF of the current published version. Null before publication. */
+    pdfDownloadUrl: string | null
   }
   brand: {
     /** Company display name; the Notarify mark itself is a bundled application asset. */
@@ -569,7 +571,10 @@ function PassportInformationSection({
         </Field>
       </dl>
 
-      {published && (hasText(passport.publicUrl) || hasText(passport.qrDownloadUrl)) ? (
+      {published &&
+      (hasText(passport.publicUrl) ||
+        hasText(passport.qrDownloadUrl) ||
+        hasText(passport.pdfDownloadUrl)) ? (
         <div className="flex flex-wrap gap-2">
           {hasText(passport.publicUrl) ? (
             <a
@@ -578,6 +583,15 @@ function PassportInformationSection({
               data-testid="passport-public-link"
             >
               Open passport
+            </a>
+          ) : null}
+          {hasText(passport.pdfDownloadUrl) ? (
+            <a
+              className="btn btn-sm btn-outline"
+              href={passport.pdfDownloadUrl}
+              data-testid="passport-pdf-download"
+            >
+              Download PDF
             </a>
           ) : null}
           {hasText(passport.qrDownloadUrl) ? (

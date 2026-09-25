@@ -169,4 +169,45 @@ export class PublicPassportService {
   } | null> {
     return this.assets.findAcceptedContentById(assetId)
   }
+
+  /**
+   * Loads the bytes of assets the current active version is allowed to expose.
+   *
+   * This is the same authorization boundary the public asset route uses, batched for
+   * the PDF export: the active version is resolved once, only ids retained by that exact
+   * version are kept, and only those ids are read back as accepted content. A draft-only,
+   * historical-only, foreign or non-accepted asset is therefore absent from the result
+   * rather than merely filtered afterwards.
+   *
+   * The caller decides which of the retained assets it actually needs; this method never
+   * widens visibility by itself.
+   */
+  async readRetainedAssets(
+    publicUuid: string,
+    assetIds: string[],
+  ): Promise<
+    Array<{ assetId: string; detectedMime: string; originalName: string; bytes: Buffer }>
+  > {
+    const candidates = [...new Set(assetIds)].filter((assetId) => isUUID(assetId))
+    if (candidates.length === 0) {
+      return []
+    }
+
+    const active = await this.resolveActive(publicUuid)
+    const retained = await this.prisma.passportVersionAsset.findMany({
+      where: { versionId: active.versionId, assetId: { in: candidates } },
+      select: { assetId: true },
+    })
+    if (retained.length === 0) {
+      return []
+    }
+
+    const contents = await this.assets.findAcceptedContentsByIds(retained.map((row) => row.assetId))
+    return contents.map((content) => ({
+      assetId: content.id,
+      detectedMime: content.detectedMime,
+      originalName: content.originalName,
+      bytes: content.bytes,
+    }))
+  }
 }
