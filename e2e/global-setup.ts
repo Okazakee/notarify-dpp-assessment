@@ -9,6 +9,15 @@ import { Client } from 'pg'
 export const E2E_EMAIL = 'e2e@example.test'
 export const E2E_PASSWORD = 'E2ePassw0rd!'
 
+/**
+ * The same company's administrator account.
+ *
+ * Historical-version inspection is an Admin capability, so the browser proof needs a
+ * real Admin session rather than a stubbed role: the API refuses an Editor's history
+ * request with 403, and that refusal is part of the tested behaviour.
+ */
+export const E2E_ADMIN_EMAIL = 'e2e-admin@example.test'
+
 export default async function globalSetup(): Promise<void> {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) {
@@ -29,6 +38,12 @@ export default async function globalSetup(): Promise<void> {
        VALUES ('00000000-0000-4000-8000-00000000e002', '00000000-0000-4000-8000-00000000e001', $1, $1, $2, 'EDITOR', true, now(), now())
        ON CONFLICT (id) DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", active = true`,
       [E2E_EMAIL, passwordHash],
+    )
+    await client.query(
+      `INSERT INTO "User" (id, "companyId", email, "normalizedEmail", "passwordHash", role, active, "createdAt", "updatedAt")
+       VALUES ('00000000-0000-4000-8000-00000000e003', '00000000-0000-4000-8000-00000000e001', $1, $1, $2, 'ADMIN', true, now(), now())
+       ON CONFLICT (id) DO UPDATE SET "passwordHash" = EXCLUDED."passwordHash", active = true`,
+      [E2E_ADMIN_EMAIL, passwordHash],
     )
     // Categories are required by the product editor; keep the e2e run
     // self-contained instead of depending on the root seed having been run.

@@ -8,6 +8,17 @@ export type Category = {
   name: string
 }
 
+/** Publication state needed by the product table to render its passport actions. */
+export type ProductPassportSummary = {
+  publicUuid: string
+  publicUrl: string
+  qrDownloadUrl: string
+  currentVersionNumber: number
+  sourceDraftRevision: number
+  hasUnpublishedChanges: boolean
+  currentPublishedAt: string
+}
+
 export type ProductListItem = {
   id: string
   name: string | null
@@ -19,6 +30,9 @@ export type ProductListItem = {
   draftRevision: number
   createdAt: string
   updatedAt: string
+  /** The current draft cover asset. Bytes stay behind the authenticated asset route. */
+  coverImageAssetId: string | null
+  passport: ProductPassportSummary | null
 }
 
 export type Material = {
