@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { NotarifyMark } from '../brand-mark'
 import { PassportPresentation } from '../presentation'
 import { fetchPublicPassport } from '../public-passport'
+import { PassportViewTracker } from '../view-tracker'
 
 type PublicPassportPageProps = {
   params: Promise<{ uuid: string }>
@@ -71,6 +72,15 @@ export default async function PublicPassportPage({ params }: PublicPassportPageP
 
   return (
     <div className="min-h-screen bg-base-200">
+      {/* Counts one visible navigation. It renders nothing and never gates the page. */}
+      {/* The public projection always carries both; the shared model allows null for */}
+      {/* editor placeholders, so the tracker is skipped rather than invented. */}
+      {result.model.passport.publicUuid !== null && result.model.passport.version !== null ? (
+        <PassportViewTracker
+          publicUuid={result.model.passport.publicUuid}
+          version={result.model.passport.version}
+        />
+      ) : null}
       <main className="px-4 py-8 sm:px-6 sm:py-12">
         <PassportPresentation model={result.model} />
       </main>

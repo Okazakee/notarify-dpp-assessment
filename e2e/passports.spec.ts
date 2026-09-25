@@ -391,11 +391,10 @@ test.describe('Product table publication columns', () => {
     await expect(publishedRow.getByTestId('product-qr-download')).toBeVisible()
     await expect(publishedRow.getByTestId('product-unpublished-changes')).toBeVisible()
 
-    // Total views is unavailable until analytics exists; it must not display an invented 0.
+    // Total views is a measured value now: this product has no recorded views, so the
+    // real count is 0 and the Stage 4 placeholder is gone.
     const totalViews = publishedRow.getByTestId('product-total-views')
-    await expect(totalViews).not.toContainText('0')
-    await expect(totalViews).toContainText('—')
-    await expect(totalViews).toContainText('Available after analytics')
+    await expect(totalViews).toHaveText('0')
 
     // An unpublished row offers no broken public action.
     const draftRow = page.getByRole('row').filter({ hasText: draftOnlyName })

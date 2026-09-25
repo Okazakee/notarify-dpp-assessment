@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { isUUID } from 'class-validator'
+import { AnalyticsService } from '../analytics/analytics.service.js'
 import { assetKindForMime } from '../assets/asset-processing.js'
 import { AssetsService } from '../assets/assets.service.js'
 import { ApiException } from '../common/api-exception.js'
@@ -118,6 +119,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly assets: AssetsService,
     private readonly config: ConfigService<AppEnvironment, true>,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   async listCategories(): Promise<Array<{ id: string; stableCode: string; name: string }>> {
@@ -133,7 +135,7 @@ export class ProductsService {
     this.validateNestedInput(input)
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const saved = await this.prisma.$transaction(async (tx) => {
         await this.validateCategory(tx, input.categoryId)
         await this.validateChildIds(tx, input.materials, input.certifications)
         await this.validateAssetReferences(
@@ -185,8 +187,10 @@ export class ProductsService {
         if (!result) {
           throw this.productNotFound()
         }
-        return this.mapDetail(result)
+        return result
       })
+
+      return this.mapDetail(saved, await this.totalViewsForProduct(saved))
     } catch (error) {
       this.handleMutationError(error, input.serialNumber)
     }
@@ -202,7 +206,7 @@ export class ProductsService {
     if (!product) {
       throw this.productNotFound()
     }
-    return this.mapDetail(product)
+    return this.mapDetail(product, await this.totalViewsForProduct(product))
   }
 
   /**
@@ -284,7 +288,7 @@ export class ProductsService {
     this.validateNestedInput(input)
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const saved = await this.prisma.$transaction(async (tx) => {
         await this.validateCategory(tx, input.categoryId)
         await this.validateChildIds(tx, input.materials, input.certifications, id)
         await this.validateAssetReferences(
@@ -355,8 +359,10 @@ export class ProductsService {
         if (!result) {
           throw this.productNotFound()
         }
-        return this.mapDetail(result)
+        return result
       })
+
+      return this.mapDetail(saved, await this.totalViewsForProduct(saved))
     } catch (error) {
       this.handleMutationError(error, input.serialNumber)
     }
@@ -436,9 +442,24 @@ export class ProductsService {
         })
       : []
     const byId = new Map(products.map((product) => [product.id, product]))
+
+    // One bounded aggregate for the whole page. A published Passport's views are read in
+    // a single grouped query, so the Total Views column never becomes one query per row.
+    const viewsByPassport = await this.analytics.totalViewsByPassport(
+      products.flatMap((product) => {
+        const passportId = this.activePassportId(product)
+        return passportId === null ? [] : [passportId]
+      }),
+    )
+
     const items = ids.flatMap((productId) => {
       const product = byId.get(productId)
-      return product ? [this.mapListItem(product)] : []
+      if (product === undefined) {
+        return []
+      }
+      const passportId = this.activePassportId(product)
+      const totalViews = passportId === null ? 0 : (viewsByPassport.get(passportId) ?? 0)
+      return [this.mapListItem(product, totalViews)]
     })
     const total = Number(countRows[0]?.count ?? 0n)
     return {
@@ -953,9 +974,9 @@ export class ProductsService {
     await this.insertCertifications(tx, productId, certifications)
   }
 
-  private mapDetail(product: ProductWithDetails): ProductDetail {
+  private mapDetail(product: ProductWithDetails, totalViews: number): ProductDetail {
     return {
-      ...this.mapListItem(product),
+      ...this.mapListItem(product, totalViews),
       description: product.description,
       productionDate: this.serializeDate(product.productionDate),
       originCountry: product.originCountry,
@@ -1027,7 +1048,30 @@ export class ProductsService {
     }
   }
 
-  private mapListItem(product: ProductWithDetails): ProductListItem {
+  /**
+   * The Passport that currently represents this product publicly, or `null`.
+   *
+   * A withdrawn passport is not an active publication, so it contributes no views and no
+   * publication metadata — the same rule the passport list applies.
+   */
+  private activePassportId(product: ProductWithDetails): string | null {
+    if (product.passport === null || product.passport.withdrawnAt !== null) {
+      return null
+    }
+    return product.passport.currentVersion === null ? null : product.passport.id
+  }
+
+  /** Non-synthetic view count for one product's active Passport. Zero when unpublished. */
+  private async totalViewsForProduct(product: ProductWithDetails): Promise<number> {
+    const passportId = this.activePassportId(product)
+    if (passportId === null) {
+      return 0
+    }
+    const views = await this.analytics.totalViewsByPassport([passportId])
+    return views.get(passportId) ?? 0
+  }
+
+  private mapListItem(product: ProductWithDetails, totalViews: number): ProductListItem {
     const status: ProductStatus =
       product.passport !== null && product.passport.withdrawnAt === null ? 'PUBLISHED' : 'DRAFT'
     const cover = product.images.find((image) => image.role === 'COVER')
@@ -1049,6 +1093,7 @@ export class ProductsService {
       // The draft cover, not a published one: this column describes the product row the
       // operator is looking at, and the bytes stay behind `GET /assets/:id`.
       coverImageAssetId: cover?.assetId ?? null,
+      totalViews,
       passport:
         currentVersion === null || product.passport === null
           ? null

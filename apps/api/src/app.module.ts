@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
+import { AnalyticsModule } from './analytics/analytics.module.js'
 import { AssetsModule } from './assets/assets.module.js'
 import { AuthModule } from './auth/auth.module.js'
 import { ApiExceptionFilter } from './common/api-exception.js'
@@ -15,6 +16,7 @@ import { PublicationModule } from './publication/publication.module.js'
     ValidatedConfigModule,
     PrismaModule,
     AuthModule,
+    AnalyticsModule,
     AssetsModule,
     ProductsModule,
     PublicationModule,

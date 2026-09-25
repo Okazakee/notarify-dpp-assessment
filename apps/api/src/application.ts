@@ -7,6 +7,8 @@ import {
   ValidationPipe,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { AnalyticsQueryDto } from './analytics/dto/analytics-query.dto.js'
+import { ViewEventDto } from './analytics/dto/view-event.dto.js'
 import { ApiException } from './common/api-exception.js'
 import type { HttpResponse, ParsedRequest } from './common/http-types.js'
 import type { AppEnvironment } from './config/configuration.js'
@@ -65,6 +67,9 @@ export function configureApplication(app: INestApplication): void {
         const isPassportValidation = errors.some(
           ({ target }) => target instanceof ListPassportsQueryDto,
         )
+        const isAnalyticsValidation = errors.some(
+          ({ target }) => target instanceof AnalyticsQueryDto || target instanceof ViewEventDto,
+        )
         if (isProductValidation) {
           return new ApiException(
             HttpStatus.BAD_REQUEST,
@@ -77,6 +82,13 @@ export function configureApplication(app: INestApplication): void {
             HttpStatus.BAD_REQUEST,
             'VALIDATION_ERROR',
             'Invalid passport request.',
+          )
+        }
+        if (isAnalyticsValidation) {
+          return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_ERROR',
+            'Invalid analytics request.',
           )
         }
         return new BadRequestException(errors)

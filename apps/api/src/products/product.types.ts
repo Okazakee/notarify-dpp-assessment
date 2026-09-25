@@ -77,6 +77,14 @@ export type ProductListItem = {
    */
   coverImageAssetId: string | null
   /**
+   * Non-synthetic views of the currently active Passport, or `0`.
+   *
+   * A product that has never been published, and a published product nobody has viewed,
+   * both report `0` — after Stage 5 that is a measured value rather than a placeholder.
+   * A QR scan does not count: this metric is views only.
+   */
+  totalViews: number
+  /**
    * Current publication metadata, or `null` when the product has never been published.
    *
    * This is fetched with the list query itself, never one request per row. The identity

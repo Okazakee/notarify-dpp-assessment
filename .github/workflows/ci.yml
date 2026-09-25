@@ -45,12 +45,24 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
+      # A real Redis server for the cache integration suite. The API treats the cache as
+      # disposable, so the service is evidence rather than a correctness dependency.
+      redis:
+        image: redis:8.10.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
 
     env:
       DATABASE_URL: postgresql://notarify:notarify_ci_only@localhost:5432/notarify_ci?schema=public
       JWT_SECRET: ci-only-secret-not-for-production
       CORS_ORIGIN: http://localhost:3001
       NODE_ENV: test
+      REDIS_URL: redis://localhost:6379
 
     steps:
       - name: Checkout
