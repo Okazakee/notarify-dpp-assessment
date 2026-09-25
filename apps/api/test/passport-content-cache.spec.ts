@@ -1,5 +1,8 @@
 import 'reflect-metadata'
-import { PassportContentCache } from '../src/cache/passport-content-cache.service.js'
+import {
+  PASSPORT_CONTENT_CACHE_SCHEMA,
+  PassportContentCache,
+} from '../src/cache/passport-content-cache.service.js'
 
 /**
  * The disabled-cache contract, proven at the port rather than by re-configuring a running
@@ -43,7 +46,7 @@ describe('PassportContentCache configuration', () => {
     // The key carries the passport, the exact version and the content schema, so a
     // republish selects a different key by construction.
     expect(cache.key({ passportId: 'passport-1', versionId: 'version-1' })).toBe(
-      'notarify:passport:passport-1:version:version-1:schema:1',
+      `notarify:passport:passport-1:version:version-1:schema:${PASSPORT_CONTENT_CACHE_SCHEMA}`,
     )
     expect(cache.key({ passportId: 'passport-1', versionId: 'version-2' })).not.toBe(
       cache.key({ passportId: 'passport-1', versionId: 'version-1' }),

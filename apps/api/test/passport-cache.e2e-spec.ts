@@ -7,7 +7,10 @@ import { createClient, type RedisClientType } from '@redis/client'
 import request from 'supertest'
 import { AppModule } from '../src/app.module.js'
 import { configureApplication } from '../src/application.js'
-import { PASSPORT_CONTENT_CACHE_SCHEMA } from '../src/cache/passport-content-cache.service.js'
+import {
+  PASSPORT_CONTENT_CACHE_SCHEMA,
+  PassportContentCache,
+} from '../src/cache/passport-content-cache.service.js'
 import { UserRole } from '../src/generated/prisma/enums.js'
 import { PrismaService } from '../src/prisma/prisma.service.js'
 import { pngFixture } from './asset-fixtures.js'
@@ -258,29 +261,44 @@ describe('Immutable content caching', () => {
     expect(cached).not.toBeNull()
     const parsed = JSON.parse(cached as string) as {
       schema: number
-      digest: string
+      checksum: string
       content: { product: { name: string } }
     }
     expect(parsed.schema).toBe(PASSPORT_CONTENT_CACHE_SCHEMA)
-    expect(parsed.digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(parsed.checksum).toMatch(/^[0-9a-f]{64}$/)
     expect(parsed.content.product.name).toBe('Cache warm-up')
 
     const ttl = await redis.ttl(key)
     expect(ttl).toBeGreaterThan(0)
     expect(ttl).toBeLessThanOrEqual(300)
 
-    // A hit is proved by changing only what the cache holds: the stored snapshot is
-    // untouched, so if the API answers with this injected name it can only have read the
-    // cache. The digest still matches the selected snapshot, so the entry is trusted.
-    parsed.content.product.name = 'Served from the cache'
-    await redis.set(key, JSON.stringify(parsed))
+    // A hit is proved through the cache port itself — the entry is read back from real
+    // Redis and validated against the snapshot PostgreSQL holds — rather than by
+    // mutating content, which the integrity checksum must now reject.
+    const snapshot = (
+      await prisma.passportVersion.findUniqueOrThrow({
+        where: { id: published.versionId },
+        select: { publicSnapshot: true },
+      })
+    ).publicSnapshot
+    const cache = app.get(PassportContentCache)
+    const hit = await cache.read(key, snapshot)
+    expect(hit).not.toBeNull()
+    expect(hit?.product.name).toBe('Cache warm-up')
 
-    const fromCache = await getPassport(published.publicUuid)
-    expect(fromCache.status).toBe(200)
-    expect(fromCache.body.product.name).toBe('Served from the cache')
+    // An API-level hit is proved by the entry's expiry: a miss rewrites the entry with a
+    // fresh TTL, while a hit leaves the existing one counting down. Without this, a
+    // regression that never returned cached content would keep every suite green.
+    const ttlBeforeSecondRead = await redis.ttl(key)
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    const secondRead = await getPassport(published.publicUuid)
+    expect(secondRead.status).toBe(200)
+    expect(secondRead.body.product.name).toBe('Cache warm-up')
+    const ttlAfterSecondRead = await redis.ttl(key)
+    expect(ttlAfterSecondRead).toBeLessThanOrEqual(ttlBeforeSecondRead - 1)
 
     // Changing the stored snapshot invalidates the entry instead of being masked by it:
-    // the digest no longer matches, so PostgreSQL is read and the entry is dropped.
+    // the checksum no longer matches, so PostgreSQL is read and the entry is dropped.
     await prisma.passportVersion.update({
       where: { id: published.versionId },
       data: {
@@ -307,6 +325,65 @@ describe('Immutable content caching', () => {
     expect(fromDatabase.body.product.name).toBe('Changed behind the cache')
   })
 
+  it('rejects and repairs an entry whose content was modified after it was written', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const published = await publishProduct(token, await createCategory(), 'Cache warm-up')
+    const key = cacheKey(published.passportId, published.versionId)
+
+    expect((await getPassport(published.publicUuid)).status).toBe(200)
+    const original = await redis.get(key)
+    expect(original).not.toBeNull()
+
+    // Only the cached content changes. The entry stays shape-valid and its integrity
+    // checksum is left exactly as it was written, so this is precisely the case an
+    // unkeyed snapshot-only digest would have missed.
+    const tampered = JSON.parse(original as string) as {
+      content: { product: { name: string } }
+    }
+    tampered.content.product.name = 'Corrupted cache content'
+    await redis.set(key, JSON.stringify(tampered))
+
+    const response = await getPassport(published.publicUuid)
+    expect(response.status).toBe(200)
+    // The authoritative published content, never the mutated cache entry.
+    expect(response.body.product.name).toBe('Cache warm-up')
+    expect(response.body.product.name).not.toBe('Corrupted cache content')
+
+    // The bad entry was replaced by a valid one instead of being served again, and the
+    // repaired entry validates, so the following read is a genuine hit.
+    const repaired = await redis.get(key)
+    expect(repaired).not.toBeNull()
+    expect(JSON.parse(repaired as string)).toMatchObject({
+      content: { product: { name: 'Cache warm-up' } },
+    })
+    const snapshot = (
+      await prisma.passportVersion.findUniqueOrThrow({
+        where: { id: published.versionId },
+        select: { publicSnapshot: true },
+      })
+    ).publicSnapshot
+    const hit = await app.get(PassportContentCache).read(key, snapshot)
+    expect(hit?.product.name).toBe('Cache warm-up')
+  })
+
+  it('discards an oversized entry instead of parsing it', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const published = await publishProduct(token, await createCategory(), 'Oversize proof')
+    const key = cacheKey(published.passportId, published.versionId)
+
+    expect((await getPassport(published.publicUuid)).status).toBe(200)
+
+    // Larger than the bound the reader accepts, so it must be dropped unparsed.
+    await redis.set(key, JSON.stringify({ padding: 'x'.repeat(600 * 1024) }))
+
+    const response = await getPassport(published.publicUuid)
+    expect(response.status).toBe(200)
+    expect(response.body.product.name).toBe('Oversize proof')
+    expect(await redis.get(key)).not.toContain('padding')
+  })
+
   it('falls back to PostgreSQL and discards an unreadable cached payload', async () => {
     const fixture = await createFixture()
     const token = await login(fixture)
@@ -318,7 +395,7 @@ describe('Immutable content caching', () => {
       key,
       JSON.stringify({
         schema: PASSPORT_CONTENT_CACHE_SCHEMA,
-        digest: 'x',
+        checksum: 'x',
         content: { product: { name: 42 } },
       }),
     )
@@ -343,7 +420,7 @@ describe('Immutable content caching', () => {
       key,
       JSON.stringify({
         schema: PASSPORT_CONTENT_CACHE_SCHEMA + 1,
-        digest: 'x',
+        checksum: 'x',
         content: { product: { name: 'From another deployment' } },
       }),
     )
@@ -404,6 +481,46 @@ describe('Immutable content caching', () => {
     const second = await getPassport(published.publicUuid, outageApp)
     expect(second.status).toBe(200)
   })
+
+  it('falls back within a bounded time when Redis is connected but stops replying', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const published = await publishProduct(token, await createCategory(), 'Stalled cache proof')
+    const key = cacheKey(published.passportId, published.versionId)
+
+    // Warm the entry, so this request would be served from the cache if the server
+    // answered at all.
+    expect((await getPassport(published.publicUuid)).status).toBe(200)
+    expect(await redis.get(key)).not.toBeNull()
+    const ttlBeforeStall = await redis.ttl(key)
+
+    // A real Redis that stops answering: `CLIENT PAUSE ... ALL` holds every command for
+    // the window. This is a genuine stalled server, not a fake one, and it is the case a
+    // refused connection does not cover — the socket is open, the reply never arrives.
+    const pauseMs = 8_000
+    await redis.sendCommand(['CLIENT', 'PAUSE', String(pauseMs), 'ALL'])
+
+    const started = Date.now()
+    const response = await getPassport(published.publicUuid)
+    const elapsed = Date.now() - started
+
+    expect(response.status).toBe(200)
+    expect(response.body.product.name).toBe('Stalled cache proof')
+    // The request finished while the server was still paused, which is the proof that a
+    // silent socket cannot hold a public read open. The floor matters as much as the
+    // ceiling: a request that never consulted Redis would also be fast.
+    expect(elapsed).toBeLessThan(pauseMs - 500)
+    expect(elapsed).toBeGreaterThan(1_500)
+
+    // After the pause the cache serves again rather than being left broken, and the entry's
+    // expiry is still counting down — which distinguishes a hit from a rewrite.
+    await new Promise((resolve) => setTimeout(resolve, pauseMs - elapsed + 250))
+    const afterPause = await getPassport(published.publicUuid)
+    expect(afterPause.status).toBe(200)
+    expect(afterPause.body.product.name).toBe('Stalled cache proof')
+    expect(await redis.ttl(key)).toBeLessThanOrEqual(ttlBeforeStall - 1)
+    // The pause window plus the bounded fallback exceed the default test budget.
+  }, 30_000)
 
   // The absent-`REDIS_URL` case is proven at the port level in
   // `passport-content-cache.spec.ts`, not here: the validated environment is loaded once

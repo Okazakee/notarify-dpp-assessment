@@ -9,16 +9,29 @@ import {
 } from '../publication/passport-snapshot-content.js'
 
 /**
- * Identifies the cached content shape and its interpretation.
+ * Identifies the cached content shape, its interpretation and its envelope.
  *
  * A payload written by different interpretation code must never be read as if it were
  * current, so the value participates in the cache key: a change here naturally orphans
- * every previously written entry instead of silently serving a stale shape.
+ * every previously written entry instead of silently serving a stale shape. It is bumped
+ * whenever the envelope changes too, so entries from an older envelope are simply never
+ * selected.
  */
-export const PASSPORT_CONTENT_CACHE_SCHEMA = 1
+export const PASSPORT_CONTENT_CACHE_SCHEMA = 2
 
 /** Bounds a connection attempt so a dead cache cannot stall a request. */
 const CONNECT_TIMEOUT_MS = 2_000
+
+/**
+ * Bounds how long a socket may stay silent once connected.
+ *
+ * The command-level `timeout` option is not sufficient here: this client removes that
+ * listener as soon as the command is written, so it bounds queueing rather than the wait
+ * for a reply. A connected server that stops answering is only caught by an inactivity
+ * timeout on the socket itself, which is why this is configured. When it fires, the
+ * pending command rejects and the caller falls back to PostgreSQL.
+ */
+const SOCKET_TIMEOUT_MS = 2_000
 
 /** Bounds a single cache command, the last line of defence against a hung socket. */
 const COMMAND_TIMEOUT_MS = 1_000
@@ -29,10 +42,10 @@ const FAILURE_LOG_INTERVAL_MS = 30_000
 /** A cached entry is untrusted input; bound it before parsing it. */
 const MAX_CACHED_PAYLOAD_BYTES = 512 * 1024
 
-/** The stored envelope: the schema, the snapshot it was derived from, and the content. */
+/** The stored envelope: the schema, the integrity checksum and the interpreted content. */
 type CachedEntry = {
   schema: number
-  digest: string
+  checksum: string
   content: unknown
 }
 
@@ -41,16 +54,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A digest of the exact immutable snapshot a cached entry was derived from.
- *
- * Shape validation alone would let a well-formed payload that belongs to a *different*
- * passport or version be served if it ever appeared under this key. Binding the entry to
- * the snapshot PostgreSQL just selected for the current version removes that possibility:
- * a mismatched entry is discarded and the stored snapshot is interpreted instead.
+ * A domain separator, so this checksum cannot be confused with any other use of SHA-256
+ * in this file or be replayed from an unrelated construction.
  */
-function snapshotDigest(snapshot: unknown): string {
+const BINDING_DOMAIN = 'notarify:passport-content-cache:v1'
+
+/**
+ * The integrity checksum that binds a cached entry to what it claims to be.
+ *
+ * It covers **both** inputs, and that is the whole point:
+ *
+ * 1. the exact immutable snapshot PostgreSQL selected for this version, so an entry from
+ *    another passport, another version or a stale snapshot cannot be served; and
+ * 2. the exact interpreted content being returned, so content that was edited, truncated
+ *    or transplanted inside Redis cannot be served either.
+ *
+ * Covering only the snapshot would leave the content itself unverified: a shape-valid but
+ * modified payload would still pass, and a disposable cache could silently change
+ * published Passport content.
+ *
+ * This is an unkeyed checksum, and it is described as exactly that. It detects corruption
+ * and inconsistency, including a payload copied from elsewhere. It is **not**
+ * authentication: an actor who controls Redis and can recompute SHA-256 could forge a
+ * consistent entry, and that is out of scope for this assessment, where Redis is a
+ * disposable cache inside the trusted deployment rather than an adversary.
+ *
+ * Serialization is deterministic for this data: both values are plain JSON produced by
+ * `JSON.stringify` over objects whose key order is stable — the snapshot as PostgreSQL
+ * returns it, and the content either as `buildPassportContent` produced it or as it was
+ * parsed back from the very string stored here.
+ */
+function bindingChecksum(snapshot: unknown, content: PassportContent): string {
   return createHash('sha256')
+    .update(BINDING_DOMAIN)
+    .update('\0')
     .update(JSON.stringify(snapshot) ?? 'null')
+    .update('\0')
+    .update(JSON.stringify(content) ?? 'null')
     .digest('hex')
 }
 
@@ -84,6 +124,7 @@ export class PassportContentCache implements OnModuleDestroy {
             disableOfflineQueue: true,
             socket: {
               connectTimeout: CONNECT_TIMEOUT_MS,
+              socketTimeout: SOCKET_TIMEOUT_MS,
               // No background reconnection loop. A request that finds the cache down fails
               // fast and falls back to PostgreSQL; the next request tries a fresh, bounded
               // connection, so recovery happens without a retry storm in between.
@@ -136,9 +177,10 @@ export class PassportContentCache implements OnModuleDestroy {
       }
 
       const entry = parseCachedEntry(raw)
-      if (entry === null || entry.digest !== snapshotDigest(snapshot)) {
-        // The entry is unreadable, was written by another schema, or does not belong to
-        // the version PostgreSQL just selected. None of those may be served.
+      if (entry === null || entry.checksum !== bindingChecksum(snapshot, entry.content)) {
+        // The entry is unreadable, was written by another schema, belongs to a different
+        // version or snapshot, or its content was modified after it was written. None of
+        // those may be served: the stored snapshot is interpreted instead.
         this.logger.warn('Discarding a cached Passport content entry that does not match')
         await this.delete(key)
         return null
@@ -162,7 +204,7 @@ export class PassportContentCache implements OnModuleDestroy {
       await this.ensureConnected(client)
       const entry: CachedEntry = {
         schema: PASSPORT_CONTENT_CACHE_SCHEMA,
-        digest: snapshotDigest(snapshot),
+        checksum: bindingChecksum(snapshot, content),
         content,
       }
       await client
@@ -281,15 +323,15 @@ function safeJsonParse(value: string): unknown {
 }
 
 /** Validates the stored envelope, including the content shape it carries. */
-function parseCachedEntry(raw: string): { digest: string; content: PassportContent } | null {
+function parseCachedEntry(raw: string): { checksum: string; content: PassportContent } | null {
   const parsed = safeJsonParse(raw)
   if (!isRecord(parsed) || parsed.schema !== PASSPORT_CONTENT_CACHE_SCHEMA) {
     return null
   }
-  if (typeof parsed.digest !== 'string') {
+  if (typeof parsed.checksum !== 'string') {
     return null
   }
 
   const content = parsePassportContent(parsed.content)
-  return content === null ? null : { digest: parsed.digest, content }
+  return content === null ? null : { checksum: parsed.checksum, content }
 }
