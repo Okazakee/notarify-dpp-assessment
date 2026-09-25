@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto'
 import type { INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { hash } from '@node-rs/argon2'
-import sharp from 'sharp'
 import request from 'supertest'
 import { AppModule } from '../src/app.module.js'
 import { configureApplication } from '../src/application.js'
 import { AssetState, UserRole } from '../src/generated/prisma/enums.js'
 import { PrismaService } from '../src/prisma/prisma.service.js'
-import { pdfFixture, pngFixture } from './asset-fixtures.js'
+import { pdfFixture, pngFixture, solidPng, solidWebp } from './asset-fixtures.js'
+import { countColour, parsePdf } from './pdf-inspect.js'
 
 /**
  * Stage 4.5 — Passport PDF export.
@@ -44,10 +44,6 @@ type PublicationResult = {
   versionId: string
   versionNumber: number
 }
-
-type PdfImage = { width: number; height: number; data: Uint8Array }
-
-type ParsedPdf = { pages: number; text: string; images: PdfImage[]; links: string[] }
 
 let app: INestApplication
 let prisma: PrismaService
@@ -116,20 +112,6 @@ async function uploadAsset(token: string, bytes: Buffer, filename: string): Prom
     .attach('file', bytes, { filename, contentType: 'application/octet-stream' })
   expect(response.status).toBe(201)
   return response.body.id as string
-}
-
-/** A solid-colour PNG, so an embedded image can be recognised by its pixels. */
-async function solidPng(hex: string, size = 64): Promise<Buffer> {
-  return sharp({ create: { width: size, height: size, channels: 3, background: hex } })
-    .png()
-    .toBuffer()
-}
-
-/** A solid-colour WebP, which PDFKit cannot embed without conversion. */
-async function solidWebp(hex: string, size = 64): Promise<Buffer> {
-  return sharp({ create: { width: size, height: size, channels: 3, background: hex } })
-    .webp()
-    .toBuffer()
 }
 
 /** A draft that satisfies every publication prerequisite. */
@@ -231,99 +213,6 @@ async function downloadPdf(publicUuid: string): Promise<request.Response> {
 /** Requests a PDF without the binary parser, so a JSON error body stays parseable. */
 async function attemptPdf(publicUuid: string): Promise<request.Response> {
   return request(app.getHttpServer()).get(`/passport/${publicUuid}/pdf`)
-}
-
-let pdfjsModule: typeof import('pdfjs-dist/legacy/build/pdf.mjs') | null = null
-async function pdfjs(): Promise<typeof import('pdfjs-dist/legacy/build/pdf.mjs')> {
-  if (pdfjsModule === null) {
-    pdfjsModule = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  }
-  return pdfjsModule
-}
-
-/** Parses a generated PDF independently of PDFKit and extracts its text and images. */
-async function parsePdf(bytes: Buffer): Promise<ParsedPdf> {
-  const pdfjsLib = await pdfjs()
-  const document = await pdfjsLib.getDocument({
-    data: new Uint8Array(bytes),
-    useSystemFonts: false,
-  }).promise
-  let text = ''
-  const images: PdfImage[] = []
-  const links: string[] = []
-  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-    const page = await document.getPage(pageNumber)
-    const content = await page.getTextContent()
-    for (const item of content.items) {
-      if ('str' in item && typeof item.str === 'string') {
-        text += `${item.str} `
-      }
-    }
-    text += '\n'
-
-    // Clickable link annotations are extracted independently of the drawn text, so a
-    // missing or wrong link target fails even when the surrounding words look right.
-    const annotations = await page.getAnnotations()
-    for (const annotation of annotations) {
-      if (annotation.subtype === 'Link' && typeof annotation.url === 'string') {
-        links.push(annotation.url)
-      }
-    }
-
-    const operators = await page.getOperatorList()
-    for (let index = 0; index < operators.fnArray.length; index += 1) {
-      if (operators.fnArray[index] === pdfjsLib.OPS.paintImageXObject) {
-        const id = operators.argsArray[index]?.[0]
-        if (typeof id !== 'string') {
-          continue
-        }
-        // PDF.js decodes embedded images asynchronously. An already-resolved object can
-        // be read directly; otherwise the callback form waits for the decode instead of
-        // throwing "object isn't resolved yet".
-        let image: PdfImage | undefined
-        try {
-          image = page.objs.get(id) as PdfImage | undefined
-        } catch {
-          image = await new Promise<PdfImage | undefined>((resolve) => {
-            const timer = setTimeout(() => resolve(undefined), 3000)
-            page.objs.get(id, (resolved: PdfImage) => {
-              clearTimeout(timer)
-              resolve(resolved)
-            })
-          })
-        }
-        if (image !== undefined && image.data !== undefined) {
-          images.push(image)
-        }
-      }
-    }
-  }
-  return { pages: document.numPages, text: text.replace(/\s+/g, ' '), images, links }
-}
-
-/** Counts pixels close to an RGB colour across every embedded image. */
-function countColour(images: PdfImage[], colour: [number, number, number]): number {
-  let count = 0
-  for (const image of images) {
-    const pixels = image.width * image.height
-    if (pixels <= 0) {
-      continue
-    }
-    const channels = Math.round(image.data.length / pixels)
-    if (channels !== 3 && channels !== 4) {
-      continue
-    }
-    for (let offset = 0; offset + channels - 1 < image.data.length; offset += channels) {
-      const matches =
-        Math.abs((image.data[offset] ?? 0) - colour[0]) <= 8 &&
-        Math.abs((image.data[offset + 1] ?? 0) - colour[1]) <= 8 &&
-        Math.abs((image.data[offset + 2] ?? 0) - colour[2]) <= 8
-      if (matches) {
-        count += 1
-      }
-    }
-  }
-  return count
 }
 
 beforeAll(async () => {
@@ -775,6 +664,65 @@ describe('PDF versioning isolation proof', () => {
       .parse(binaryParser)
     expect(qrAfterV2.status).toBe(200)
     expect(Buffer.compare(qrAfterV1.body as Buffer, qrAfterV2.body as Buffer)).toBe(0)
+
+    // A further draft edit to C must not reach the current PDF either.
+    const blue = await uploadAsset(token, await solidPng('#0000ff'), 'blue.png')
+    await patchDraft(token, draft.productId, editedRevision, {
+      name: 'Isolation C',
+      images: [{ assetId: blue, role: 'COVER', altText: 'blue' }],
+    })
+    const pdfAfterC = await parsePdf((await downloadPdf(versionOne.publicUuid)).body as Buffer)
+    expect(pdfAfterC.text).toContain('Isolation B')
+    expect(pdfAfterC.text).not.toContain('Isolation C')
+    expect(pdfAfterC.text).toContain('v2')
+    expect(countColour(pdfAfterC.images, [0, 255, 0])).toBeGreaterThan(0)
+    expect(countColour(pdfAfterC.images, [0, 0, 255])).toBe(0)
+  })
+})
+
+describe('PDF and public projection parity', () => {
+  it('agrees with the public projection on the stable published fields', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory(), {
+      name: 'Parity Product',
+      sku: 'SKU-PARITY',
+      serialNumber: 'SN-PARITY-1',
+      description: 'Parity description',
+    })
+    const published = await publish(token, draft.productId, draft.draftRevision)
+
+    const view = await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`)
+    expect(view.status).toBe(200)
+    const parsed = await parsePdf((await downloadPdf(published.publicUuid)).body as Buffer)
+
+    // Identity and passport metadata must agree between the API projection and the PDF.
+    expect(parsed.text).toContain(view.body.product.name)
+    expect(parsed.text).toContain(view.body.product.sku)
+    expect(parsed.text).toContain(view.body.product.serialNumber)
+    expect(parsed.text).toContain(view.body.passport.publicUuid)
+    expect(parsed.text).toContain(`v${view.body.passport.version}`)
+
+    // Published content sections, using the fixture's declared values.
+    for (const material of view.body.materials) {
+      expect(parsed.text).toContain(material.name)
+    }
+    expect(parsed.text).toContain('60%')
+    expect(parsed.text).toContain('40%')
+    expect(parsed.text).toContain('12.5 kg CO2e')
+    expect(parsed.text).toContain('340 L')
+    expect(parsed.text).toContain('45%')
+    expect(parsed.text).toContain('7.5 / 10')
+    for (const certification of view.body.certifications) {
+      expect(parsed.text).toContain(certification.name)
+      expect(parsed.text).toContain(certification.issuingAuthority)
+    }
+    for (const document of view.body.documents) {
+      expect(parsed.text).toContain(document.title)
+    }
+
+    // The canonical public URL is clickable in both surfaces.
+    expect(parsed.links).toContain(view.body.passport.publicUrl)
   })
 })
 
