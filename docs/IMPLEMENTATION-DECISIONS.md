@@ -194,7 +194,7 @@ Historical versions are back-office-only (previously settled in B6/B8). Anonymou
 
 ### B11. Passport PDF export decisions (Stage 4.5)
 
-Recorded 2026-09-25 and implemented on `build/passport-pdf`. These are technical choices; the product decisions they depend on (current-version-only, stable UUID/QR, back-office-only history) were already recorded in B6–B10.
+Recorded 2026-09-25, implemented on `build/passport-pdf` and merged into `main`. These are technical choices; the product decisions they depend on (current-version-only, stable UUID/QR, back-office-only history) were already recorded in B6–B10.
 
 | Decision | Value |
 | --- | --- |

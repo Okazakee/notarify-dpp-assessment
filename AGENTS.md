@@ -16,7 +16,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.4 (back-office Passports and complete version history) is merged into `main`.**
 
-**Stage 4.5 (Passport PDF export) is implemented and locally validated on `build/passport-pdf`; it is not merged yet.**
+**Stage 4.5 (Passport PDF export) is merged into `main`.**
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -119,7 +119,7 @@ Stage 4.3 Gate 7 correction locally verified on 2026-09-24: `pnpm check` passes 
 
 Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm check` passes (104 files linted with no diagnostics, both workspaces typecheck and build, 7 integration suites with 128 of 128 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 33 of 33 against the built stack; `pnpm audit` reports no known vulnerabilities. The documentation-only tip `d99b8e4` passed CI run `36140600586`, and the accepted final tip `033680a` passed CI run `36141115620`. The `--no-ff` merge commit is `57ade8315ffb04ed44c0e445eca93619735a55f4`, and the merged `main` passed CI run `36146706397` (lint, typecheck, build, 128 integration tests against a fresh PostgreSQL 18.6 service, 33 Playwright tests and dependency audit).
 
-Stage 4.5 locally verified on 2026-09-25 on `build/passport-pdf`: `pnpm check` passes (110 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 145 of 145 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 38 of 38 against the built stack; `pnpm audit` reports no known vulnerabilities. Those runs are local evidence only until the branch HEAD has green CI.
+Stage 4.5 locally verified on 2026-09-25 on `build/passport-pdf`: `pnpm check` passes (110 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 145 of 145 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 38 of 38 against the built stack; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `94d36de` passed CI run `36154972651`. The `--no-ff` merge commit is `1867a670987a873988153b247e07d1e3c7e7f4a9`, and the merged `main` passed CI run `36156162845` (lint, typecheck, build, 145 integration tests against a fresh PostgreSQL 18.6 service, 38 Playwright tests and dependency audit).
 
 ## The specs are authoritative
 
