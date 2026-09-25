@@ -190,6 +190,8 @@ Cristian explicitly settled published-edit visibility: editing mutable Product d
 
 Historical versions are back-office-only (previously settled in B6/B8). Anonymous routes expose the current version only; no public historical-version route is planned. Back-office version history remains unimplemented and is not part of Stage 4.3.
 
+**Update 2026-09-25 (Stage 4.4):** the back-office-only history B10 requires is now implemented, and the decision itself is unchanged. `GET /passports` (ADMIN and EDITOR) lists the company's active publications from the current immutable snapshot; Admin-only `GET /passports/:passportId/versions`, `GET /passports/:passportId/versions/:versionNumber` and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId` list, project and serve every retained immutable version. No public historical route was added; the historical projection deliberately omits `publicUrl`, `qrTargetUrl` and `qrDownloadUrl` because they belong to the passport's current version. The role split is enforced by `RolesGuard` after `AccessTokenGuard`; the permission posture is recorded in the Stage 4.4 note in `docs/specs/04-AUTH-AND-SECURITY.md`.
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.
