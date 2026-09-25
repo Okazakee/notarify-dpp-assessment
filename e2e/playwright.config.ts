@@ -37,6 +37,9 @@ export default defineConfig({
         PORT: String(API_PORT),
         JWT_SECRET: 'e2e-only-secret-value-not-for-production',
         NODE_ENV: 'development',
+        // The disposable cache is optional by design: if no Redis is listening the API
+        // falls back to PostgreSQL, so the browser suite stays runnable either way.
+        REDIS_URL: process.env.REDIS_URL ?? 'redis://127.0.0.1:6390',
       },
     },
     {

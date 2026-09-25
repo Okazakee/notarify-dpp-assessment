@@ -117,6 +117,12 @@ export default function PassportsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/analytics"
+              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+            >
+              Analytics
+            </Link>
+            <Link
               href="/products"
               className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
             >

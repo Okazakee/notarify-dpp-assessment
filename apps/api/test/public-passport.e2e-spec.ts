@@ -15,6 +15,7 @@ type Fixture = { companyId: string; userId: string; email: string; password: str
 
 type PublishedFixture = {
   productId: string
+  passportId: string
   publicUuid: string
   versionId: string
   coverAssetId: string
@@ -152,6 +153,7 @@ async function publishProduct(
 
   return {
     productId: created.body.id as string,
+    passportId: published.body.passportId as string,
     publicUuid: published.body.publicUuid as string,
     versionId: published.body.versionId as string,
     coverAssetId: cover,
@@ -178,6 +180,9 @@ afterAll(async () => {
     })
     const passportIds = passports.map((passport) => passport.id)
     if (passportIds.length > 0) {
+      // Analytics rows reference a version, so they go before the versions themselves.
+      await prisma.analyticsEvent.deleteMany({ where: { passportId: { in: passportIds } } })
+      await prisma.analyticsDaily.deleteMany({ where: { passportId: { in: passportIds } } })
       const versions = await prisma.passportVersion.findMany({
         where: { passportId: { in: passportIds } },
         select: { id: true },
@@ -649,22 +654,48 @@ describe('Public QR artifact and redirect', () => {
     expect(withdrawn.status).toBe(404)
   })
 
-  it('writes no analytics rows for any public read', async () => {
+  it('records only the QR redirect as a scan, and nothing for other public reads', async () => {
     const fixture = await createFixture()
     const published = await publishProduct(await login(fixture), await createCategory())
 
-    const before = await prisma.analyticsEvent.count()
-    const beforeDaily = await prisma.analyticsDaily.count()
+    const before = await prisma.analyticsEvent.count({
+      where: { passportId: published.passportId },
+    })
+    const beforeDaily = await prisma.analyticsDaily.count({
+      where: { passportId: published.passportId },
+    })
+    const auditBefore = await prisma.auditEvent.count()
 
     await request(app.getHttpServer()).get(`/passport/${published.publicUuid}`)
     await request(app.getHttpServer()).get(`/passport/${published.publicUuid}/qr.png`)
     await request(app.getHttpServer()).get(
       `/passport/${published.publicUuid}/assets/${published.coverAssetId}`,
     )
+
+    // Stage 4 proved this surface recorded nothing before analytics existed. Stage 5
+    // deliberately changes one of these: the QR resolver is a scan. The other public
+    // reads stay silent — the JSON projection is not a view, and a QR download is not a
+    // scan — so the assertion is now per surface rather than global.
+    expect(await prisma.analyticsEvent.count({ where: { passportId: published.passportId } })).toBe(
+      before,
+    )
+    expect(await prisma.analyticsDaily.count({ where: { passportId: published.passportId } })).toBe(
+      beforeDaily,
+    )
+
     await request(app.getHttpServer()).get(`/q/${published.publicUuid}`).redirects(0)
 
-    expect(await prisma.analyticsEvent.count()).toBe(before)
-    expect(await prisma.analyticsDaily.count()).toBe(beforeDaily)
+    const events = await prisma.analyticsEvent.findMany({
+      where: { passportId: published.passportId },
+    })
+    expect(events).toHaveLength(before + 1)
+    expect(events[0]?.kind).toBe('QR_HIT')
+    expect(events[0]?.source).toBe('QR_REDIRECT')
+    expect(await prisma.analyticsDaily.count({ where: { passportId: published.passportId } })).toBe(
+      beforeDaily + 1,
+    )
+    // Analytics collection is not the audit-log bonus.
+    expect(await prisma.auditEvent.count()).toBe(auditBefore)
   })
 })
 

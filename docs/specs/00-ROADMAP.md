@@ -44,7 +44,7 @@ P0 = required functionality plus the security/testing needed to trust it. P1 = b
 | 6 | Remaining required back-office and lifecycle work: Product DELETE, Users, Settings, and the audit and soft-delete bonuses | Soft delete, audit logs | Every assessment-required route and action exists, is authorized, and is covered |
 | 7 | Docker/Compose completion and testing, migrations, seed, Swagger/OpenAPI, README, architecture document, final E2E, security checks, clean-clone validation and final reconciliation | Unit/integration/E2E evidence consolidated | Reviewer can run it and Cristian can explain critical paths |
 
-Stages 0–3 and Stages 4.1–4.6 are complete. Stages 4.1–4.6 are merged into `main`. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
+Stages 0–3, Stages 4.1–4.6 and Stage 5 are complete. Stages 4.1–4.6 are merged into `main`; Stage 5 is implemented and locally validated on `build/analytics-dashboard-redis` and awaits its milestone decision. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
 
 ### Stage 4 milestones
 
@@ -57,13 +57,17 @@ Stages 0–3 and Stages 4.1–4.6 are complete. Stages 4.1–4.6 are merged into
 | 4.5 | Passport PDF export: the current published passport, QR, required product and passport information, relevant content, safe server-side generation and download UX | A downloaded PDF matches the published version and is produced without a browser process |
 | 4.6 | Stage 4 acceptance and regression: first publish, draft edit after publication, republish, stable UUID/QR, old-version retention, public visibility, public file authorization, preview parity, historical version behaviour, PDF, responsive anonymous access and the required back-office actions | The Stage 4 acceptance matrix passes as one suite |
 
-Milestones 4.1–4.6 are implemented. Stage 4 automated acceptance and regression pass as one matrix with one cross-milestone lifecycle journey — see [STAGE4-ACCEPTANCE.md](../STAGE4-ACCEPTANCE.md). The physical handset QR scan, Cristian's manual UI walkthrough and human source-code review remain explicitly outstanding manual acceptance items; Stage 5 has not started. The Product table still owes Total Views to Stage 5 and Product delete plus a read-only View destination to Stage 6, which is recorded rather than faked. Stage 4.5 exports the current published version only: the PDF is generated server-side from the immutable snapshot, reuses the stored QR artifact, and there is no historical PDF route.
+Milestones 4.1–4.6 are implemented. Stage 4 automated acceptance and regression pass as one matrix with one cross-milestone lifecycle journey — see [STAGE4-ACCEPTANCE.md](../STAGE4-ACCEPTANCE.md). The physical handset QR scan, Cristian's manual UI walkthrough and human source-code review remain explicitly outstanding manual acceptance items. Stage 4.5 exports the current published version only: the PDF is generated server-side from the immutable snapshot, reuses the stored QR artifact, and there is no historical PDF route.
+
+### Stage 5 milestone
+
+Stage 5 is implemented as one milestone: the stable QR resolver records `QR_HIT`, the visible public page records one idempotent `VIEW`, `GET /dashboard` and `GET /analytics` report company-scoped numbers to both roles with the raw address confined to the Admin projection, the Product list shows a measured `Total Views`, and Redis caches only immutable published content after a fresh PostgreSQL visibility and current-version check. Analytics reporting is UTC, the country is a labelled mock, and there is deliberately **no** automatic raw-retention or purge job: accepted events remain in `AnalyticsEvent` while `AnalyticsDaily` is maintained transactionally at ingestion, and production retention is future hardening. Stage 5 added no schema change and no migration. Product delete plus a read-only View destination remain Stage 6 work, recorded rather than faked.
 
 Historical versions are back-office only. No public historical-version route is planned; Stage 4.4 implemented `/passports` for both roles and the Admin-only `/passports/[passportId]` history view.
 
 ## Delivery sequence
 
-Work proceeds as gated milestones rather than calendar days: each milestone has a bounded acceptance surface and a recorded decision gate before the next one starts. Stages 0–3 are complete. Stage 4 runs as the six milestones above, followed by Stage 5 (analytics, dashboard and Redis), Stage 6 (remaining back-office and lifecycle work) and Stage 7 (delivery and submission).
+Work proceeds as gated milestones rather than calendar days: each milestone has a bounded acceptance surface and a recorded decision gate before the next one starts. Stages 0–3 are complete. Stage 4 ran as the six milestones above, Stage 5 delivered analytics, the dashboard, Total Views and the Redis cache bonus, and Stage 6 (remaining back-office and lifecycle work) and Stage 7 (delivery and submission) remain.
 
 Every required feature and all nine bonuses remain in scope, and sequence is a working order rather than permission to omit. If time is tight, reduce decorative polish first and report any incomplete item honestly; do not quietly drop a required feature or a listed bonus, and do not weaken authorization, upload safety, test evidence, required pages or documentation to gain time.
 

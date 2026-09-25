@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { ApiException } from '../common/api-exception.js'
-import { buildPassportContent } from '../publication/passport-snapshot-content.js'
+import type { PassportContent } from '../publication/passport-snapshot-content.js'
 
 /**
  * The anonymous public projection.
@@ -109,14 +109,14 @@ function assetUrl(publicUuid: string, assetId: string): string {
 }
 
 export function buildPassportView(input: {
-  snapshot: unknown
+  content: PassportContent
   publicUuid: string
   versionNumber: number
   firstPublishedAt: Date
   publishedAt: Date
   publicAppOrigin: string
 }): PassportView {
-  const content = buildPassportContent({ snapshot: input.snapshot })
+  const content = input.content
   const { publicUuid, publicAppOrigin } = input
 
   return {

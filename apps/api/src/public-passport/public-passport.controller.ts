@@ -1,15 +1,57 @@
-import { Controller, Get, Header, HttpStatus, Logger, Param, Req, Res } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  HttpStatus,
+  Logger,
+  Param,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { AnalyticsIngestLimiter } from '../analytics/analytics-ingest-limiter.service.js'
+import {
+  extractAnalyticsMetadata,
+  isPrefetchRequest,
+} from '../analytics/analytics-request-metadata.js'
+import { ViewEventDto } from '../analytics/dto/view-event.dto.js'
 import { PDF_MIME_TYPE } from '../assets/asset-processing.js'
+import { ApiException } from '../common/api-exception.js'
 import {
   type BinaryHttpResponse,
   contentDisposition,
   writeBinaryResponse,
 } from '../common/binary-response.js'
 import type { ParsedRequest } from '../common/http-types.js'
+import type { AppEnvironment } from '../config/configuration.js'
 import { PassportPdfService } from './passport-pdf.service.js'
 import { type StreamingHttpResponse, streamPdfResponse } from './passport-pdf-stream.js'
 import { type PassportView, passportNotFound } from './passport-view.js'
 import { PublicPassportService } from './public-passport.service.js'
+
+/**
+ * What the analytics pipeline reads from an incoming public request.
+ *
+ * `ip` is the address the runtime resolved for the socket, not a header: the application
+ * does not enable proxy trust, so a forged `X-Forwarded-For` never becomes the recorded
+ * address.
+ */
+type PublicAnalyticsRequest = ParsedRequest & {
+  ip?: string
+  method?: string
+}
+
+/**
+ * How long a QR redirect is willing to wait for its scan to be recorded.
+ *
+ * Recording is best-effort and must never gate the redirect, so the write is awaited only
+ * within this budget: a slow or wedged analytics insert delays the scan by at most this,
+ * and the write continues in the background while the redirect already happened.
+ */
+const QR_RECORD_BUDGET_MS = 250
 
 /**
  * The anonymous public passport surface.
@@ -25,6 +67,8 @@ export class PublicPassportController {
   constructor(
     private readonly passports: PublicPassportService,
     private readonly pdfExport: PassportPdfService,
+    private readonly config: ConfigService<AppEnvironment, true>,
+    private readonly ingestLimiter: AnalyticsIngestLimiter,
   ) {}
 
   /** The public projection of the current published version. */
@@ -142,18 +186,108 @@ export class PublicPassportController {
   }
 
   /**
+   * Records one rendered-page view.
+   *
+   * Anonymous, like the page it describes. The body carries only an idempotency key and
+   * the public version the page rendered; the time, address, browser, operating system,
+   * language, country and synthetic flag are all resolved by the server, and unknown
+   * body properties are rejected rather than ignored.
+   *
+   * A retry with the same key is a no-op, so the client can retry a transient failure
+   * safely. Ingestion is separate from page delivery: the Passport itself stays readable
+   * whether or not this endpoint succeeds.
+   */
+  @Post('passport/:uuid/view')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  // A recorded event is never cacheable, and neither is its failure.
+  @Header('Cache-Control', 'no-store')
+  async recordView(
+    @Req() request: PublicAnalyticsRequest,
+    @Param('uuid') uuid: string,
+    @Body() body: ViewEventDto,
+  ): Promise<void> {
+    const metadata = extractAnalyticsMetadata({
+      headers: request.headers,
+      ip: request.ip,
+      mockCountry: this.config.getOrThrow<string>('ANALYTICS_MOCK_COUNTRY'),
+      source: 'PUBLIC_PAGE',
+    })
+
+    if (
+      !this.ingestLimiter.take({ kind: 'VIEW', ipAddress: metadata.ipAddress, publicUuid: uuid })
+    ) {
+      throw new ApiException(
+        HttpStatus.TOO_MANY_REQUESTS,
+        'ANALYTICS_RATE_LIMITED',
+        'Too many analytics events.',
+      )
+    }
+
+    await this.passports.recordView({
+      publicUuid: uuid,
+      version: body.version,
+      eventKey: body.eventKey,
+      metadata,
+    })
+  }
+
+  /**
    * Resolves a printed QR code.
    *
    * The location is built from validated configuration plus the stored public UUID, so
-   * the request's `Host` header can never influence where a scan lands. Stage 5 can
-   * record a QR hit here without changing any printed URL.
+   * the request's `Host` header can never influence where a scan lands.
+   *
+   * A real navigation is recorded as a QR hit, and analytics never gates the redirect: a
+   * refused, failed or rate-limited recording still returns the same 302 for a valid
+   * Passport. `HEAD` and obvious prefetch requests are not counted.
    */
   @Get('q/:uuid')
-  async resolveQr(@Param('uuid') uuid: string, @Res() response: BinaryHttpResponse): Promise<void> {
-    const location = await this.passports.getQrRedirectTarget(uuid)
+  async resolveQr(
+    @Req() request: PublicAnalyticsRequest,
+    @Param('uuid') uuid: string,
+    @Res() response: BinaryHttpResponse,
+  ): Promise<void> {
+    const scan = await this.passports.getQrScan(uuid)
+
+    if (request.method !== 'HEAD' && !isPrefetchRequest(request.headers)) {
+      // Analytics is an observation of a scan, never a condition for it: any failure in
+      // this block — metadata, throttle or storage — is contained here so the valid
+      // Passport below still redirects.
+      try {
+        const metadata = extractAnalyticsMetadata({
+          headers: request.headers,
+          ip: request.ip,
+          mockCountry: this.config.getOrThrow<string>('ANALYTICS_MOCK_COUNTRY'),
+          source: 'QR_REDIRECT',
+        })
+
+        if (
+          this.ingestLimiter.take({
+            kind: 'QR_HIT',
+            ipAddress: metadata.ipAddress,
+            publicUuid: uuid,
+          })
+        ) {
+          // Bounded, not awaited indefinitely: see `QR_RECORD_BUDGET_MS`.
+          await Promise.race([
+            this.passports.recordQrHit({
+              passportId: scan.passportId,
+              versionId: scan.versionId,
+              metadata,
+            }),
+            new Promise<void>((resolve) => {
+              setTimeout(resolve, QR_RECORD_BUDGET_MS)
+            }),
+          ])
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'unknown error'
+        this.logger.warn(`QR scan recording failed, redirecting anyway: ${reason}`)
+      }
+    }
 
     response.setHeader('Cache-Control', 'no-store')
-    response.setHeader('Location', location)
+    response.setHeader('Location', scan.location)
     response.status(HttpStatus.FOUND)
     response.end(Buffer.alloc(0))
   }

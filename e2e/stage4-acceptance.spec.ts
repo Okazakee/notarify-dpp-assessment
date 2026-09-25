@@ -331,6 +331,29 @@ async function tableCounts(): Promise<{ analytics: number; daily: number; audit:
   })
 }
 
+type PassportEventCounts = { qrHits: number; views: number; daily: number }
+
+/**
+ * Per-kind analytics counts for one passport.
+ *
+ * Stage 5 assertions are deltas and kinds rather than global totals: the disposable e2e
+ * database accumulates rows across runs, and the invariants worth proving are *which*
+ * surface recorded what, not an absolute number nobody controls.
+ */
+async function passportEventCounts(passportId: string): Promise<PassportEventCounts> {
+  return withDb(async (client) => {
+    const { rows } = await client.query<PassportEventCounts>(
+      `SELECT (SELECT count(*)::int FROM "AnalyticsEvent"
+               WHERE "passportId" = $1 AND "kind" = 'QR_HIT') AS "qrHits",
+              (SELECT count(*)::int FROM "AnalyticsEvent"
+               WHERE "passportId" = $1 AND "kind" = 'VIEW') AS "views",
+              (SELECT count(*)::int FROM "AnalyticsDaily" WHERE "passportId" = $1) AS "daily"`,
+      [passportId],
+    )
+    return rows[0] as PassportEventCounts
+  })
+}
+
 async function pdfBytes(request: APIRequestContext, publicUuid: string): Promise<Buffer> {
   const response = await request.get(`${API}/passport/${publicUuid}/pdf`)
   expect(response.status()).toBe(200)
@@ -812,10 +835,18 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     const decoded = await decodeQrPng(state.qrBytes as Buffer)
     expect(decoded).toBe(`${WEB}/q/${journey.publicUuid}`)
 
+    const before = await passportEventCounts(journey.passportId)
+
     // The decoded target resolves through the web bridge to the canonical public page.
     const bridged = await request.get(decoded, { maxRedirects: 0 })
     expect(bridged.status()).toBe(302)
     expect(bridged.headers().location).toBe(`${WEB}/passport/${journey.publicUuid}`)
+
+    // Stage 5 deliberately changes what Stage 4 proved here: an accepted QR resolution is
+    // now recorded as exactly one scan, and the HTML fetch is not a view.
+    const afterBridge = await passportEventCounts(journey.passportId)
+    expect(afterBridge.qrHits).toBe(before.qrHits + 1)
+    expect(afterBridge.views).toBe(before.views)
 
     const page = await request.get(`${WEB}/passport/${journey.publicUuid}`)
     expect(page.status()).toBe(200)
@@ -826,11 +857,12 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     expect(qrDownload.status()).toBe(200)
     expect(Buffer.compare(await qrDownload.body(), journey.qrBytes)).toBe(0)
 
+    const afterDownload = await passportEventCounts(journey.passportId)
+    expect(afterDownload.qrHits).toBe(afterBridge.qrHits)
+    expect(afterDownload.views).toBe(afterBridge.views)
+
+    // Analytics collection is not the audit-log bonus.
     const counts = await tableCounts()
-    // Baseline equality rather than zero: the disposable e2e database accumulates rows
-    // across runs, and the invariant is that Stage 4 wrote nothing new.
-    expect(counts.analytics).toBe(journey.analyticsBaseline)
-    expect(counts.daily).toBe(journey.dailyBaseline)
     expect(counts.audit).toBe(journey.auditBaseline)
   })
 
@@ -859,6 +891,7 @@ test.describe('Stage 4 acceptance lifecycle', () => {
   })
 
   test('renders the public passport server-side for an anonymous visitor', async ({ browser }) => {
+    const before = await passportEventCounts(journey.passportId)
     const context = await browser.newContext({ javaScriptEnabled: false })
     const page = await context.newPage()
     const response = await page.goto(`/passport/${journey.publicUuid}`)
@@ -874,6 +907,11 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     expect(html).toContain('prototype/application-level indicator')
     expect(await context.cookies()).toHaveLength(0)
     await context.close()
+
+    // Stage 5 truth: a visitor without JavaScript reads the Passport and is not counted
+    // as a view, because the tracker is a client component. Stated, not hidden.
+    const after = await passportEventCounts(journey.passportId)
+    expect(after.views).toBe(before.views)
   })
 
   test('keeps the public page responsive and accessible at phone and desktop widths', async ({
@@ -881,8 +919,15 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     request,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 })
+    const viewsBefore = (await passportEventCounts(journey.passportId)).views
     await page.goto(`/passport/${journey.publicUuid}`)
     await expect(page.getByTestId('passport-product-name')).toBeVisible()
+
+    // A real, visible browser navigation is the one thing that records a view. The
+    // tracker posts asynchronously, so the assertion waits for the database to agree.
+    await expect
+      .poll(async () => (await passportEventCounts(journey.passportId)).views, { timeout: 15_000 })
+      .toBe(viewsBefore + 1)
     await expect(page.getByTestId('passport-cover-image')).toBeVisible()
     const phoneOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -971,30 +1016,73 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     expect(longOverflow).toBeLessThanOrEqual(1)
   })
 
-  test('leaves analytics and audit tables unchanged across the whole journey', async ({
-    request,
-  }) => {
-    // Touch every public surface once more, then prove nothing recorded it.
+  test('records exactly the expected analytics events and no audit rows', async ({ request }) => {
+    const before = await passportEventCounts(journey.passportId)
+    const auditBefore = await tableCounts()
+
+    // These surfaces stay silent: the JSON projection is not a view, and a PDF or a QR
+    // image download is not a scan.
     await request.get(`${API}/passport/${journey.publicUuid}`)
     await request.get(`${API}/passport/${journey.publicUuid}/pdf`)
     await request.get(`${API}/passport/${journey.publicUuid}/qr.png`)
+    await request.get(`${API}/passport/${journey.publicUuid}/assets/${journey.coverB}`)
+
+    const afterSilent = await passportEventCounts(journey.passportId)
+    expect(afterSilent.qrHits).toBe(before.qrHits)
+    expect(afterSilent.views).toBe(before.views)
+
+    // One accepted QR resolution is exactly one scan.
     await request.get(`${WEB}/q/${journey.publicUuid}`, { maxRedirects: 0 })
+    const afterScan = await passportEventCounts(journey.passportId)
+    expect(afterScan.qrHits).toBe(before.qrHits + 1)
+    expect(afterScan.views).toBe(before.views)
 
-    const counts = await tableCounts()
-    expect(counts.analytics).toBe(journey.analyticsBaseline)
-    expect(counts.daily).toBe(journey.dailyBaseline)
-    expect(counts.audit).toBe(journey.auditBaseline)
+    // Stage 5 collects analytics and writes no audit event.
+    const auditAfter = await tableCounts()
+    expect(auditAfter.audit).toBe(auditBefore.audit)
 
-    const perPassport = await withDb(async (client) => {
-      const { rows } = await client.query<{ events: number; daily: number }>(
-        `SELECT (SELECT count(*)::int FROM "AnalyticsEvent" WHERE "passportId" = $1) AS events,
-                (SELECT count(*)::int FROM "AnalyticsDaily" WHERE "passportId" = $1) AS daily`,
+    // Every recorded row for this passport is one of the two expected kinds, from the
+    // expected source, and none of it is synthetic.
+    const rows = await withDb(async (client) => {
+      const { rows } = await client.query<{ kind: string; source: string; synthetic: boolean }>(
+        `SELECT "kind"::text AS kind, "source", "synthetic" FROM "AnalyticsEvent"
+         WHERE "passportId" = $1`,
         [journey.passportId],
       )
-      return rows[0] as { events: number; daily: number }
+      return rows
     })
-    expect(perPassport.events).toBe(0)
-    expect(perPassport.daily).toBe(0)
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(row.synthetic).toBe(false)
+      if (row.kind === 'QR_HIT') {
+        expect(row.source).toBe('QR_REDIRECT')
+      } else {
+        expect(row.kind).toBe('VIEW')
+        expect(row.source).toBe('PUBLIC_PAGE')
+      }
+    }
+
+    // The daily aggregates agree with the raw rows in both directions: every recorded
+    // kind has its bucket, and no bucket exists without the rows behind it.
+    const daily = await withDb(async (client) => {
+      const { rows } = await client.query<{ kind: string; total: number }>(
+        `SELECT "kind"::text AS kind, sum("count")::int AS total FROM "AnalyticsDaily"
+         WHERE "passportId" = $1 AND "synthetic" = false GROUP BY "kind"`,
+        [journey.passportId],
+      )
+      return rows
+    })
+    const expected = new Map([
+      ['QR_HIT', afterScan.qrHits],
+      ['VIEW', afterScan.views],
+    ])
+    for (const [kind, total] of expected) {
+      expect(daily.find((row) => row.kind === kind)?.total ?? 0).toBe(total)
+    }
+    // No bucket exists for a kind with no raw rows, and no kind is missing one.
+    for (const row of daily) {
+      expect(expected.get(row.kind)).toBe(row.total)
+    }
   })
 
   test('keeps the Stage 4 Product-list publication behavior for the accepted product', async ({
@@ -1017,9 +1105,9 @@ test.describe('Stage 4 acceptance lifecycle', () => {
       `${API}/passport/${journey.publicUuid}/qr.png`,
     )
     await expect(row.getByTestId('product-unpublished-changes')).toBeVisible()
-    const totalViews = row.getByTestId('product-total-views')
-    await expect(totalViews).not.toContainText('0')
-    await expect(totalViews).toContainText('—')
-    await expect(totalViews).toContainText('Available after analytics')
+    // Total Views is the measured view count for the current published passport, and the
+    // UI value must equal the database truth rather than a placeholder.
+    const expectedViews = (await passportEventCounts(journey.passportId)).views
+    await expect(row.getByTestId('product-total-views')).toHaveText(String(expectedViews))
   })
 })

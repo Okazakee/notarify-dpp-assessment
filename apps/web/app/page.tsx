@@ -65,7 +65,13 @@ export default function HomePage() {
                 href="/dashboard"
                 className="btn btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
               >
-                View account status
+                Dashboard
+              </Link>
+              <Link
+                href="/analytics"
+                className="btn btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+              >
+                Analytics
               </Link>
             </div>
           </div>

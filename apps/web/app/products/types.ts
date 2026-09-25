@@ -32,6 +32,13 @@ export type ProductListItem = {
   updatedAt: string
   /** The current draft cover asset. Bytes stay behind the authenticated asset route. */
   coverImageAssetId: string | null
+  /**
+   * Non-synthetic views of the currently active Passport, or `0`.
+   *
+   * After Stage 5 this is a measured value: an unpublished product and a published
+   * product nobody has viewed both report a real `0`. A QR scan is not a view.
+   */
+  totalViews: number
   passport: ProductPassportSummary | null
 }
 

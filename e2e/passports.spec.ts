@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
+import { Client } from 'pg'
 import { E2E_ADMIN_EMAIL, E2E_EMAIL, E2E_PASSWORD } from './global-setup.ts'
 
 /**
@@ -57,6 +58,32 @@ async function tokenFor(request: APIRequestContext, email: string): Promise<stri
   })
   expect(response.status()).toBe(200)
   return (await response.json()).accessToken as string
+}
+
+/**
+ * The recorded non-synthetic view total for one passport.
+ *
+ * The Product table's Total Views column is compared against this rather than a fixed
+ * number, because earlier tests in this file open the public page and therefore record
+ * real views.
+ */
+async function recordedViews(passportId: string): Promise<number> {
+  const connectionString = process.env.DATABASE_URL
+  if (!connectionString) {
+    throw new Error('DATABASE_URL is required for the Product Passports browser suite')
+  }
+  const client = new Client({ connectionString })
+  await client.connect()
+  try {
+    const { rows } = await client.query<{ total: number }>(
+      `SELECT coalesce(sum("count"), 0)::int AS total FROM "AnalyticsDaily"
+       WHERE "passportId" = $1 AND "kind" = 'VIEW' AND "synthetic" = false`,
+      [passportId],
+    )
+    return rows[0]?.total ?? 0
+  } finally {
+    await client.end()
+  }
 }
 
 async function signIn(page: Page, email: string): Promise<void> {
@@ -391,11 +418,12 @@ test.describe('Product table publication columns', () => {
     await expect(publishedRow.getByTestId('product-qr-download')).toBeVisible()
     await expect(publishedRow.getByTestId('product-unpublished-changes')).toBeVisible()
 
-    // Total views is unavailable until analytics exists; it must not display an invented 0.
+    // Total views is a measured value now: it equals the recorded view count for the
+    // current published passport, and the Stage 4 placeholder is gone. Earlier tests in
+    // this file open the public page, so the count is whatever really happened.
     const totalViews = publishedRow.getByTestId('product-total-views')
-    await expect(totalViews).not.toContainText('0')
-    await expect(totalViews).toContainText('—')
-    await expect(totalViews).toContainText('Available after analytics')
+    await expect(totalViews).toHaveText(String(await recordedViews(fixture.passportId)))
+    await expect(totalViews).not.toHaveText('—')
 
     // An unpublished row offers no broken public action.
     const draftRow = page.getByRole('row').filter({ hasText: draftOnlyName })
@@ -406,7 +434,8 @@ test.describe('Product table publication columns', () => {
     await expect(draftRow.getByTestId('product-not-published')).toContainText(
       'Publish to enable passport actions',
     )
-    await expect(draftRow.getByTestId('product-total-views')).toContainText('—')
+    // An unpublished product reports a measured 0, not a placeholder.
+    await expect(draftRow.getByTestId('product-total-views')).toHaveText('0')
   })
 
   test('keeps search, filtering and pagination working after the column change', async ({

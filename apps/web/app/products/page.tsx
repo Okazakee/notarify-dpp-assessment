@@ -80,6 +80,7 @@ function isProductListItem(value: unknown): value is ProductListItem {
     typeof candidate.createdAt === 'string' &&
     typeof candidate.updatedAt === 'string' &&
     (candidate.coverImageAssetId === null || typeof candidate.coverImageAssetId === 'string') &&
+    typeof candidate.totalViews === 'number' &&
     (candidate.passport === null || isProductPassportSummary(candidate.passport))
   )
 }
@@ -304,6 +305,12 @@ export default function ProductsPage() {
             <p className="mt-1 text-sm text-base-content/70">Create and maintain product drafts.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/analytics"
+              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+            >
+              Analytics
+            </Link>
             <Link
               href="/passports"
               className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
@@ -587,11 +594,8 @@ export default function ProductsPage() {
                           )}
                         </td>
                         <td>
-                          {/* Analytics is Stage 5; a placeholder is honest, an invented 0 is not. */}
-                          <span className="text-base-content/40" data-testid="product-total-views">
-                            <span aria-hidden="true">—</span>
-                            <span className="sr-only">Available after analytics</span>
-                          </span>
+                          {/* A measured value: zero is real now, not a placeholder. */}
+                          <span data-testid="product-total-views">{product.totalViews}</span>
                         </td>
                         <td>{displayDate(product.updatedAt)}</td>
                         <td>
