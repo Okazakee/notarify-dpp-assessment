@@ -405,25 +405,11 @@ describe('Immutable content caching', () => {
     expect(second.status).toBe(200)
   })
 
-  it('works with caching disabled when REDIS_URL is absent', async () => {
-    const fixture = await createFixture()
-    const token = await login(fixture)
-    const published = await publishProduct(token, await createCategory(), 'No cache configured')
-
-    const noCacheApp = await createAppWith(null)
-    extraApps.push(noCacheApp)
-
-    const response = await getPassport(published.publicUuid, noCacheApp)
-    expect(response.status).toBe(200)
-    expect(response.body.product.name).toBe('No cache configured')
-    // Nothing was written for this passport, because no cache is configured.
-    expect(await redis.get(cacheKey(published.passportId, published.versionId))).toBeNull()
-
-    const qr = await request(noCacheApp.getHttpServer())
-      .get(`/q/${published.publicUuid}`)
-      .redirects(0)
-    expect(qr.status).toBe(302)
-  })
+  // The absent-`REDIS_URL` case is proven at the port level in
+  // `passport-content-cache.spec.ts`, not here: the validated environment is loaded once
+  // per process, so removing `REDIS_URL` after an application has started cannot
+  // reconfigure a second one. The unreachable-cache fallback below is the integration
+  // proof that a broken cache never fails a request.
 })
 
 describe('Fresh visibility always wins', () => {
