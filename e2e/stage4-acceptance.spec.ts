@@ -75,6 +75,8 @@ type Journey = {
   versionTwoRevision: number
   snapshotB: unknown
   auditBaseline: number
+  analyticsBaseline: number
+  dailyBaseline: number
 }
 
 let journey: Journey
@@ -418,6 +420,8 @@ test.beforeAll(async ({ request }) => {
     versionTwoRevision: 0,
     snapshotB: null,
     auditBaseline: counts.audit,
+    analyticsBaseline: counts.analytics,
+    dailyBaseline: counts.daily,
   }
 })
 
@@ -823,9 +827,35 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     expect(Buffer.compare(await qrDownload.body(), journey.qrBytes)).toBe(0)
 
     const counts = await tableCounts()
-    expect(counts.analytics).toBe(0)
-    expect(counts.daily).toBe(0)
+    // Baseline equality rather than zero: the disposable e2e database accumulates rows
+    // across runs, and the invariant is that Stage 4 wrote nothing new.
+    expect(counts.analytics).toBe(journey.analyticsBaseline)
+    expect(counts.daily).toBe(journey.dailyBaseline)
     expect(counts.audit).toBe(journey.auditBaseline)
+  })
+
+  test('exposes no public historical Passport or historical PDF route', async ({ request }) => {
+    // The anonymous surface must only ever serve the current version. These are the
+    // shapes a historical route would plausibly take; each must be a safe 404, and the
+    // authenticated history route must still require a token.
+    const candidateRoutes = [
+      `/passport/${journey.publicUuid}/versions`,
+      `/passport/${journey.publicUuid}/versions/1`,
+      `/passport/${journey.publicUuid}/versions/1/pdf`,
+      `/passport/${journey.publicUuid}/version/1/pdf`,
+      `/passport/${journey.publicUuid}/v1/pdf`,
+    ]
+    for (const route of candidateRoutes) {
+      const response = await request.get(`${API}${route}`)
+      expect([route, response.status()]).toEqual([route, 404])
+    }
+
+    const authenticatedHistory = await request.get(
+      `${API}/passports/${journey.passportId}/versions/1/pdf`,
+    )
+    // No historical PDF route exists for anyone: even the authenticated path is absent,
+    // so the request never reaches a guard.
+    expect(authenticatedHistory.status()).toBe(404)
   })
 
   test('renders the public passport server-side for an anonymous visitor', async ({ browser }) => {
@@ -951,8 +981,8 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     await request.get(`${WEB}/q/${journey.publicUuid}`, { maxRedirects: 0 })
 
     const counts = await tableCounts()
-    expect(counts.analytics).toBe(0)
-    expect(counts.daily).toBe(0)
+    expect(counts.analytics).toBe(journey.analyticsBaseline)
+    expect(counts.daily).toBe(journey.dailyBaseline)
     expect(counts.audit).toBe(journey.auditBaseline)
 
     const perPassport = await withDb(async (client) => {

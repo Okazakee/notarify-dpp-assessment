@@ -34,7 +34,7 @@ complete draft A → Preview A → publish v1 → public/QR/PDF/history = A,v1
 | 2 | Unsaved editor edit appears only in Preview; nothing persisted; public/PDF/history stay on A,v1 | PASS |
 | 3 | Saved draft B without republish: revision advances, back office reports A with unpublished changes, public/PDF/QR/UUID unchanged | PASS |
 | 4 | Republish v2: current pointer moves, same Passport/UUID/QR bytes, public/PDF/back office converge on B, v1 assets private again, Admin history retains both versions, Editor history 403 | PASS |
-| 5 | Further draft C stays private; v1/v2 snapshots byte-for-byte unchanged; draft asset never public or historical | PASS |
+| 5 | Further draft C stays private; v1/v2 parsed snapshots remain equal to their stored originals; draft asset never public or historical | PASS |
 | 6 | Automated QR chain: stored bytes → independent decode → configured target → 302 → canonical page; QR download records nothing | PASS |
 | 7 | Server-rendered public page for an anonymous visitor with no cookies | PASS |
 | 8 | Public page responsive at 390 px and desktop; headings, named actions, table headers, alt text, long-content wrapping | PASS |
@@ -66,7 +66,7 @@ complete draft A → Preview A → publish v1 → public/QR/PDF/history = A,v1
 | Anonymous public page carries every required section and the qualified badge | 4.3 | acceptance #1/#8; `e2e/passport-ui.spec.ts` | PASS | manual UI walkthrough: **NOT VALIDATED** |
 | Public page is server-rendered without client JavaScript | 4.3 | acceptance #7; `e2e/passport-ui.spec.ts` | PASS | no |
 | Preview renders the current editor state (unsaved included) under unpublished chrome | 4.3 | acceptance #1/#2; `e2e/passport-ui.spec.ts` | PASS | no |
-| Preview/public/history share one presentation component (semantic parity) | 4.3/4.4 | acceptance #1/#4; `e2e/passport-ui.spec.ts`; `e2e/passports.spec.ts` | PASS | no |
+| Preview/public/history render the same sections and labels (semantic parity) | 4.3/4.4 | acceptance #1/#4; `e2e/passport-ui.spec.ts`; `e2e/passports.spec.ts` | PASS (rendered parity; that one shared component is used in source is code-reviewed, not separately asserted) | no |
 | Seven editor tabs, roving tabindex and arrow/Home/End navigation | 4.3 | `e2e/passport-ui.spec.ts` | PASS | no |
 | Public surface requires no session and never restores one | 4.3 | acceptance #7; `e2e/passport-ui.spec.ts` | PASS | no |
 | Verification badge stays prototype/application-level in every surface | 4.3/4.5 | acceptance #1/#7; `passport-pdf.e2e-spec.ts`; `e2e/passport-ui.spec.ts` | PASS | no |
@@ -77,7 +77,7 @@ complete draft A → Preview A → publish v1 → public/QR/PDF/history = A,v1
 | Historical asset requires retention by the exact requested version | 4.4 | acceptance #4/#5; `passports.e2e-spec.ts`; `e2e/passports.spec.ts` | PASS | no |
 | Role authority is re-read from PostgreSQL, not from JWT claims | 4.4 | `passports.e2e-spec.ts` (same-session downgrade) | PASS | no |
 | Company isolation: foreign Passport/version/asset is a safe 404 | 4.4 | `passports.e2e-spec.ts`; `publication.e2e-spec.ts` | PASS | no |
-| No public historical-version or historical-PDF route exists | 4.4/4.5 | code review; `public-passport.e2e-spec.ts` | PASS | no |
+| No public historical-version or historical-PDF route exists | 4.4/4.5 | acceptance #7 (candidate anonymous routes return 404; the authenticated history route requires a token) | PASS | no |
 | PDF exports the current immutable version, reuses the stored QR, and never regenerates one | 4.5 | acceptance #1/#4; `passport-pdf.e2e-spec.ts` (sentinel QR) | PASS | printed PDF review: **NOT VALIDATED** |
 | PDF and public projection agree on the stable published fields | 4.5 | `passport-pdf.e2e-spec.ts` (parity test) | PASS | no |
 | PDF embeds only current-version retained images; WebP converted in memory | 4.5 | acceptance #4/#5; `passport-pdf.e2e-spec.ts` | PASS | no |
@@ -87,7 +87,8 @@ complete draft A → Preview A → publish v1 → public/QR/PDF/history = A,v1
 | Product list shows an honest Total Views placeholder, never an invented `0` | 4.4 | acceptance #10; `e2e/passports.spec.ts` | PASS | no |
 | Product search, filters and bounded pagination still work | 3 | `e2e/products.spec.ts`; `e2e/passports.spec.ts`; `products.e2e-spec.ts` | PASS | no |
 | No `AnalyticsEvent`, `AnalyticsDaily` or `AuditEvent` is written by any Stage 4 path | 4.1–4.5 | acceptance #9; `public-passport.e2e-spec.ts`; `passport-pdf.e2e-spec.ts` | PASS | no |
-| Bounded work: pagination caps, sequential PDF image conversion, no HTTP self-fetch | 4.1–4.5 | code review of the accepted modules and suites | PASS | no |
+| Bounded pagination caps on Product and Passport lists | 3/4.4 | `products.e2e-spec.ts`; `passports.e2e-spec.ts` (over-limit `pageSize` is rejected) | PASS | no |
+| Sequential PDF image conversion and no HTTP self-fetch in PDF generation | 4.5 | source review of `passport-pdf.service.ts` and `passport-pdf-document.ts` (no benchmark claim) | PASS (source-reviewed) | no |
 | Long published content, long identifiers and multi-page PDF | 4.3/4.5 | acceptance #8; `passport-pdf.e2e-spec.ts` | PASS | no |
 
 ## Manual evidence still required

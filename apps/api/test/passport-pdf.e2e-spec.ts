@@ -703,7 +703,11 @@ describe('PDF and public projection parity', () => {
     expect(parsed.text).toContain(view.body.passport.publicUuid)
     expect(parsed.text).toContain(`v${view.body.passport.version}`)
 
-    // Published content sections, using the fixture's declared values.
+    // Published content sections, using the fixture's declared values. The section sizes
+    // are asserted first so an omitted section cannot pass these loops vacuously.
+    expect(view.body.materials.length).toBeGreaterThan(0)
+    expect(view.body.certifications.length).toBeGreaterThan(0)
+    expect(view.body.documents.length).toBeGreaterThan(0)
     for (const material of view.body.materials) {
       expect(parsed.text).toContain(material.name)
     }
