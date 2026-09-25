@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import sharp from 'sharp'
+import { passportUnavailable } from '../publication/passport-snapshot-content.js'
 import {
+  createPassportPdfDocument,
+  drawPassportPdf,
+  type PassportPdfDocument,
   type PassportPdfImage,
   PDF_IMAGE_MAX_DIMENSION,
-  renderPassportPdf,
 } from './passport-pdf-document.js'
 import { PublicPassportService } from './public-passport.service.js'
 
@@ -19,34 +22,33 @@ const WEBP_MIME = 'image/webp'
  * the same current active version the public page serves, so a PDF can never describe a
  * draft, a historical version or another passport's content.
  *
- * Everything is resolved before the caller starts streaming, so an ordinary lifecycle
- * failure still produces the standard JSON 404 instead of a half-written PDF.
+ * `create` performs the whole preflight — active version, snapshot projection, stored QR
+ * validation and retained image preparation — and returns a document shell plus a draw
+ * callback. The caller can therefore pipe the empty document to the client before any
+ * content is written, while every ordinary lifecycle or data failure is still raised
+ * before a single PDF header is sent.
  */
 @Injectable()
 export class PassportPdfService {
   constructor(private readonly passports: PublicPassportService) {}
 
   async create(publicUuid: string): Promise<{
-    document: PDFKit.PDFDocument
+    document: PassportPdfDocument
+    draw: () => void
     filename: string
   }> {
-    const view = await this.passports.getPassportView(publicUuid)
-    // The stored Stage 4.1 artifact, never a regenerated code. A passport whose stored
-    // QR is missing is unavailable rather than silently given a new identity.
-    const qr = await this.passports.getQrPng(publicUuid)
+    const source = await this.passports.getCurrentVersionExport(publicUuid)
 
-    // Same retention rule as the public asset route, batched: only assets retained by
-    // the current active version can come back, so a draft-only or historical-only image
-    // is absent even when its id appears in the snapshot.
-    const retained = await this.passports.readRetainedAssets(
-      publicUuid,
-      view.images.map((image) => image.assetId),
-    )
-    const byAssetId = new Map(retained.map((asset) => [asset.assetId, asset]))
+    // The stored Stage 4.1 artifact, never a regenerated code. A corrupt or absent
+    // artifact makes the export unavailable instead of silently printing a new identity.
+    await assertUsableQrPng(source.qrPng)
+
+    // Same retention rule as the public asset route, applied to one resolved version.
+    const byAssetId = new Map(source.retainedImages.map((asset) => [asset.assetId, asset] as const))
 
     // Sequential on purpose: one PDF request must not decode the whole gallery at once.
     const images: PassportPdfImage[] = []
-    for (const image of view.images) {
+    for (const image of source.view.images) {
       const asset = byAssetId.get(image.assetId)
       if (asset === undefined) {
         continue
@@ -63,10 +65,37 @@ export class PassportPdfService {
       })
     }
 
+    const document = createPassportPdfDocument(source.view)
+    const pdfSource = { view: source.view, qrPng: source.qrPng, images }
+
     return {
-      document: renderPassportPdf({ view, qrPng: qr.bytes, images }),
-      filename: `notarify-passport-${view.passport.publicUuid}-v${view.passport.version}.pdf`,
+      document,
+      draw: () => {
+        drawPassportPdf(document, pdfSource)
+      },
+      filename: `notarify-passport-${source.view.passport.publicUuid}-v${source.view.passport.version}.pdf`,
     }
+  }
+}
+
+/**
+ * Proves the stored QR artifact is a decodable PNG before the response starts.
+ *
+ * PDFKit would otherwise draw a placeholder into an otherwise successful PDF, which
+ * would look like a valid export of a passport whose identity artifact is broken.
+ */
+async function assertUsableQrPng(bytes: Buffer): Promise<void> {
+  try {
+    const metadata = await sharp(bytes).metadata()
+    if (
+      metadata.format !== 'png' ||
+      metadata.width === undefined ||
+      metadata.height === undefined
+    ) {
+      throw new Error('unusable QR artifact')
+    }
+  } catch {
+    throw passportUnavailable()
   }
 }
 

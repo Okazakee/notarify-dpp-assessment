@@ -5,23 +5,11 @@ import {
   contentDisposition,
   writeBinaryResponse,
 } from '../common/binary-response.js'
-import type { HttpResponse, ParsedRequest } from '../common/http-types.js'
+import type { ParsedRequest } from '../common/http-types.js'
 import { PassportPdfService } from './passport-pdf.service.js'
+import { type StreamingHttpResponse, streamPdfResponse } from './passport-pdf-stream.js'
 import { type PassportView, passportNotFound } from './passport-view.js'
 import { PublicPassportService } from './public-passport.service.js'
-
-/**
- * The response surface the streamed PDF route needs.
- *
- * Express's response is a Node writable stream, but this project deliberately types
- * `HttpResponse` as the small surface the other binary routes use. This narrow extension
- * keeps that boundary: only the members this route actually calls are declared.
- */
-type PdfStreamResponse = HttpResponse & {
-  end(): void
-  on(event: 'close' | 'finish', listener: () => void): unknown
-  writableEnded?: boolean
-}
 
 /**
  * The anonymous public passport surface.
@@ -60,46 +48,40 @@ export class PublicPassportController {
    * PDF route.
    */
   @Get('passport/:uuid/pdf')
+  // Route-level, so a preflight failure also carries `no-store` rather than only a
+  // successful download. A republish moves the current version while the public UUID
+  // stays stable, so the export must never be served from a shared cache.
+  @Header('Cache-Control', 'no-store')
   async pdf(
     @Req() request: ParsedRequest,
     @Param('uuid') uuid: string,
-    @Res() response: PdfStreamResponse,
+    @Res() response: StreamingHttpResponse,
   ): Promise<void> {
     // Everything is resolved before a single byte of PDF is written, so an ordinary
     // lifecycle failure is still the standard JSON 404 rather than a half-started file.
-    const { document, filename } = await this.pdfExport.create(uuid)
+    const { document, draw, filename } = await this.pdfExport.create(uuid)
 
     response.setHeader('Content-Type', 'application/pdf')
     response.setHeader('Content-Disposition', contentDisposition(filename, 'attachment'))
     response.setHeader('X-Content-Type-Options', 'nosniff')
-    // A republish moves the current version while the public UUID stays stable, so the
-    // export must never be served from a shared cache.
-    response.setHeader('Cache-Control', 'no-store')
     // Deliberately public downloadable content, and the web origin is not necessarily
     // the API origin.
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
 
-    await new Promise<void>((resolve) => {
-      const finish = (): void => {
-        resolve()
-      }
-      document.on('error', (error: unknown) => {
-        // Once streaming has begun there is nothing safe left to send. No stack trace or
-        // internal detail reaches the client; only a safe diagnostic is logged.
+    await streamPdfResponse({
+      response,
+      document,
+      draw,
+      onError: (error: unknown) => {
+        // Once streaming has begun there is nothing safe left to send. The response is
+        // aborted by the helper rather than finished, so a truncated body is never
+        // presented as a complete download, and only a safe diagnostic is logged.
         this.logger.error(
           `Passport PDF streaming failed requestId=${request.requestId ?? 'unknown'} error=${
             error instanceof Error ? error.name : 'unknown'
           }`,
         )
-        if (response.writableEnded !== true) {
-          response.end()
-        }
-        resolve()
-      })
-      response.on('close', finish)
-      response.on('finish', finish)
-      document.pipe(response as unknown as NodeJS.WritableStream)
-      document.end()
+      },
     })
   }
 

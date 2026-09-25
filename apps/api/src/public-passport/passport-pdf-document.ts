@@ -47,6 +47,9 @@ const COLOR_SUCCESS = '#15803d'
 
 export type PassportPdfImageMime = 'image/jpeg' | 'image/png'
 
+/** The document type the renderer and the streaming helper both speak. */
+export type PassportPdfDocument = PDFKit.PDFDocument
+
 export type PassportPdfImage = {
   role: 'COVER' | 'GALLERY'
   altText: string | null
@@ -149,6 +152,10 @@ function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number): void {
 }
 
 function sectionTitle(doc: PDFKit.PDFDocument, title: string): void {
+  // The previous block may have left `doc.x` at a column position (the materials table
+  // and key/value grids draw at explicit x coordinates). The heading and every paragraph
+  // under it must start at the page margin, or they are clipped at the right edge.
+  doc.x = PAGE_MARGIN
   ensureSpace(doc, 40)
   doc.moveDown(0.8)
   doc
@@ -175,17 +182,22 @@ function keyValues(doc: PDFKit.PDFDocument, pairs: Array<[string, string]>, colu
   const width = contentWidth(doc) / columns
   const labelHeight = 11
   let column = 0
+  let rowY = doc.y
+  let rowHeight = 0
   for (const [label, value] of pairs) {
     if (column === 0) {
       ensureSpace(doc, 34)
+      // Every column of one row starts at the same y, so a grid stays aligned even when
+      // one value wraps to more lines than its neighbour.
+      rowY = doc.y
+      rowHeight = 0
     }
     const x = PAGE_MARGIN + column * width
-    const y = doc.y
     doc
       .font('regular')
       .fontSize(8)
       .fillColor(COLOR_MUTED)
-      .text(label.toUpperCase(), x, y, {
+      .text(label.toUpperCase(), x, rowY, {
         width: width - 12,
         lineBreak: false,
       })
@@ -194,16 +206,16 @@ function keyValues(doc: PDFKit.PDFDocument, pairs: Array<[string, string]>, colu
       .fontSize(10)
       .fillColor(COLOR_INK)
       .heightOfString(value, { width: width - 12 })
-    doc.text(value, x, y + labelHeight, { width: width - 12 })
-    doc.y = y + labelHeight + Math.max(valueHeight, 12)
+    doc.text(value, x, rowY + labelHeight, { width: width - 12 })
+    rowHeight = Math.max(rowHeight, labelHeight + Math.max(valueHeight, 12))
     column += 1
     if (column === columns) {
       column = 0
-      doc.y += 8
+      doc.y = rowY + rowHeight + 8
     }
   }
   if (column !== 0) {
-    doc.y += 8
+    doc.y = rowY + rowHeight + 8
   }
   // Reset the flow position: callers draw full-width text next, and an explicit x/y draw
   // leaves `doc.x` at the last column.
@@ -499,7 +511,12 @@ function drawCertifications(doc: PDFKit.PDFDocument, view: PassportView): void {
         certification.pdfAssetId === null
           ? 'No certificate PDF attached.'
           : 'Supporting certificate PDF available from the public passport.',
-        { width: contentWidth(doc) },
+        {
+          width: contentWidth(doc),
+          // The supporting file is reachable through the canonical public passport page,
+          // which is already the document's link target. No API origin is invented here.
+          link: certification.pdfAssetId === null ? undefined : view.passport.publicUrl,
+        },
       )
     doc.fillColor(COLOR_INK)
     doc.moveDown(0.6)
@@ -533,7 +550,10 @@ function drawDocuments(doc: PDFKit.PDFDocument, view: PassportView): void {
       .font('regular')
       .fontSize(8)
       .fillColor(COLOR_MUTED)
-      .text('Supporting file available from the public passport.', { width: contentWidth(doc) })
+      .text('Supporting file available from the public passport.', {
+        width: contentWidth(doc),
+        link: view.passport.publicUrl,
+      })
     doc.fillColor(COLOR_INK)
     doc.moveDown(0.4)
   }
@@ -551,36 +571,45 @@ function drawGallery(doc: PDFKit.PDFDocument, images: PassportPdfImage[]): void 
   const columnGap = 12
   const columnWidth = (contentWidth(doc) - columnGap) / 2
   const imageHeight = 140
+  const captionGap = 2
   let column = 0
+  let rowY = doc.y
+  let rowCaptionHeight = 0
+  // Both columns of a row share one origin, and the row advances once by the tallest
+  // caption. Drawing the first caption must not move the second image.
+  const advanceRow = (): void => {
+    doc.y = rowY + imageHeight + captionGap + rowCaptionHeight + 18
+  }
   for (const image of gallery) {
     if (column === 0) {
-      ensureSpace(doc, imageHeight + 30)
+      ensureSpace(doc, imageHeight + 46)
+      rowY = doc.y
+      rowCaptionHeight = 0
     }
     const x = PAGE_MARGIN + column * (columnWidth + columnGap)
-    const y = doc.y
     try {
-      doc.image(image.bytes, x, y, { fit: [columnWidth, imageHeight], align: 'center' })
+      doc.image(image.bytes, x, rowY, { fit: [columnWidth, imageHeight], align: 'center' })
     } catch {
       // An optional gallery image that cannot be embedded is skipped rather than
       // failing the whole export; no draft image is substituted for it.
-      drawImagePlaceholder(doc, x, y, columnWidth, imageHeight, 'Image unavailable')
+      drawImagePlaceholder(doc, x, rowY, columnWidth, imageHeight, 'Image unavailable')
     }
     if (hasText(image.altText)) {
-      doc
-        .font('regular')
-        .fontSize(8)
-        .fillColor(COLOR_MUTED)
-        .text(image.altText, x, y + imageHeight + 2, { width: columnWidth, lineBreak: false })
+      doc.font('regular').fontSize(8).fillColor(COLOR_MUTED)
+      const captionHeight = doc.heightOfString(image.altText, { width: columnWidth })
+      // Captions wrap; they are never truncated to keep a row short.
+      doc.text(image.altText, x, rowY + imageHeight + captionGap, { width: columnWidth })
+      rowCaptionHeight = Math.max(rowCaptionHeight, captionHeight)
       doc.fillColor(COLOR_INK)
     }
     column += 1
     if (column === 2) {
       column = 0
-      doc.y = y + imageHeight + 20
+      advanceRow()
     }
   }
   if (column !== 0) {
-    doc.y += imageHeight + 20
+    advanceRow()
   }
 }
 
@@ -654,8 +683,15 @@ function drawQrSection(doc: PDFKit.PDFDocument, view: PassportView, qrPng: Buffe
   doc.y = Math.max(y + qrSize, doc.y) + 10
 }
 
-export function renderPassportPdf(source: PassportPdfSource): PDFKit.PDFDocument {
-  const { view } = source
+/**
+ * Creates the document shell: page size, margins, metadata, embedded fonts and the page
+ * footer. No published content is drawn yet.
+ *
+ * Splitting creation from drawing lets the route pipe the document to the client before
+ * any content is written, so a large passport streams instead of being queued in memory
+ * ahead of the response.
+ */
+export function createPassportPdfDocument(view: PassportView): PDFKit.PDFDocument {
   const productName = hasText(view.product.name) ? view.product.name : 'Product'
 
   const doc = new PDFDocument({
@@ -686,6 +722,13 @@ export function renderPassportPdf(source: PassportPdfSource): PDFKit.PDFDocument
   doc.on('pageAdded', labelPage)
   // The first page exists before this listener is attached, so label it explicitly.
   labelPage()
+
+  return doc
+}
+
+/** Draws every published section into a document created by `createPassportPdfDocument`. */
+export function drawPassportPdf(doc: PDFKit.PDFDocument, source: PassportPdfSource): void {
+  const { view } = source
 
   drawBrandHeader(doc, view.brand.displayName)
   const cover = source.images.find((image) => image.role === 'COVER') ?? null
@@ -718,6 +761,4 @@ export function renderPassportPdf(source: PassportPdfSource): PDFKit.PDFDocument
   drawGallery(doc, source.images)
   drawPassportInformation(doc, view)
   drawQrSection(doc, view, source.qrPng)
-
-  return doc
 }

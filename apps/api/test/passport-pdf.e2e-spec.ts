@@ -47,7 +47,7 @@ type PublicationResult = {
 
 type PdfImage = { width: number; height: number; data: Uint8Array }
 
-type ParsedPdf = { pages: number; text: string; images: PdfImage[] }
+type ParsedPdf = { pages: number; text: string; images: PdfImage[]; links: string[] }
 
 let app: INestApplication
 let prisma: PrismaService
@@ -250,6 +250,7 @@ async function parsePdf(bytes: Buffer): Promise<ParsedPdf> {
   }).promise
   let text = ''
   const images: PdfImage[] = []
+  const links: string[] = []
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber)
     const content = await page.getTextContent()
@@ -259,6 +260,15 @@ async function parsePdf(bytes: Buffer): Promise<ParsedPdf> {
       }
     }
     text += '\n'
+
+    // Clickable link annotations are extracted independently of the drawn text, so a
+    // missing or wrong link target fails even when the surrounding words look right.
+    const annotations = await page.getAnnotations()
+    for (const annotation of annotations) {
+      if (annotation.subtype === 'Link' && typeof annotation.url === 'string') {
+        links.push(annotation.url)
+      }
+    }
 
     const operators = await page.getOperatorList()
     for (let index = 0; index < operators.fnArray.length; index += 1) {
@@ -288,7 +298,7 @@ async function parsePdf(bytes: Buffer): Promise<ParsedPdf> {
       }
     }
   }
-  return { pages: document.numPages, text: text.replace(/\s+/g, ' '), images }
+  return { pages: document.numPages, text: text.replace(/\s+/g, ' '), images, links }
 }
 
 /** Counts pixels close to an RGB colour across every embedded image. */
@@ -442,8 +452,34 @@ describe('Public passport PDF response', () => {
         label,
         expect.stringContaining('application/json'),
       ])
+      // The route-level `no-store` must also cover a preflight failure.
+      expect([label, response.headers['cache-control']]).toEqual([
+        label,
+        expect.stringContaining('no-store'),
+      ])
       expect([label, response.body.code]).toEqual([label, 'PASSPORT_NOT_FOUND'])
     }
+  })
+
+  it('refuses to export when the stored QR artifact is corrupt', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+    const published = await publish(token, draft.productId, draft.draftRevision)
+
+    await prisma.passport.update({
+      where: { publicUuid: published.publicUuid },
+      data: { qrPngBytes: new Uint8Array(Buffer.from('this is not a png artifact')) },
+    })
+
+    const response = await attemptPdf(published.publicUuid)
+
+    // A broken identity artifact makes the export unavailable; it must never produce a
+    // successful PDF with a silently substituted QR code.
+    expect(response.status).toBe(500)
+    expect(response.headers['content-type']).toContain('application/json')
+    expect(response.body.code).toBe('PASSPORT_UNAVAILABLE')
+    expect(JSON.stringify(response.body)).not.toContain('%PDF-')
   })
 })
 
@@ -478,12 +514,28 @@ describe('PDF content', () => {
     expect(parsed.text).toContain('1 January 2025')
     expect(parsed.text).toContain('Manual')
 
+    // Every section heading survives the layout in full; a drifted flow position used to
+    // clip headings at the page edge.
+    expect(parsed.text).toContain('PRODUCT INFORMATION')
+    expect(parsed.text).toContain('MATERIALS')
+    expect(parsed.text).toContain('SUSTAINABILITY')
+    expect(parsed.text).toContain('CERTIFICATIONS')
+    expect(parsed.text).toContain('DOCUMENTS')
+    expect(parsed.text).toContain('GALLERY')
+    expect(parsed.text).toContain('PASSPORT INFORMATION')
+
     // Passport metadata and the canonical public URL.
     expect(parsed.text).toContain(published.publicUuid)
     expect(parsed.text).toContain('v1')
     expect(parsed.text).toContain('Verified')
     expect(parsed.text).toContain(`${PUBLIC_APP_ORIGIN}/passport/${published.publicUuid}`)
     expect(parsed.text).toContain('prototype/application-level indicator')
+
+    // The canonical URL is a real clickable link, and the certification and document
+    // entries link to it as well, so a reviewer can reach the supporting files.
+    const canonical = `${PUBLIC_APP_ORIGIN}/passport/${published.publicUuid}`
+    expect(parsed.links).toContain(canonical)
+    expect(parsed.links.filter((url) => url === canonical).length).toBeGreaterThanOrEqual(2)
 
     // No raw snapshot wrapper or internal identifier.
     expect(parsed.text).not.toContain('publicSnapshot')
@@ -518,6 +570,35 @@ describe('PDF content', () => {
     expect(countColour(parsed.images, [255, 0, 0])).toBeGreaterThan(0)
     expect(countColour(parsed.images, [0, 0, 255])).toBeGreaterThan(0)
     expect(countColour(parsed.images, [0, 255, 0])).toBeGreaterThan(0)
+  })
+
+  it('keeps a long gallery caption in full on one row with its image', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const categoryId = await createCategory()
+
+    const cover = await uploadAsset(token, await solidPng('#ff0000'), 'cover.png')
+    const first = await uploadAsset(token, await solidPng('#00ff00', 48), 'first.png')
+    const second = await uploadAsset(token, await solidPng('#0000ff', 48), 'second.png')
+    const longCaption =
+      'A long gallery caption that must wrap across several lines instead of being truncated at the column edge of the layout'
+
+    const draft = await publishableDraft(token, categoryId, {
+      images: [
+        { assetId: cover, role: 'COVER', altText: 'cover' },
+        { assetId: first, role: 'GALLERY', altText: longCaption },
+        { assetId: second, role: 'GALLERY', altText: 'short caption' },
+      ],
+    })
+    const published = await publish(token, draft.productId, draft.draftRevision)
+
+    const parsed = await parsePdf((await downloadPdf(published.publicUuid)).body as Buffer)
+
+    // The caption is published content and is never truncated to keep a row short.
+    expect(parsed.text).toContain(longCaption)
+    // Both gallery images still rendered.
+    expect(countColour(parsed.images, [0, 255, 0])).toBeGreaterThan(0)
+    expect(countColour(parsed.images, [0, 0, 255])).toBeGreaterThan(0)
   })
 
   it('survives a long passport across pages with a repeated material header', async () => {

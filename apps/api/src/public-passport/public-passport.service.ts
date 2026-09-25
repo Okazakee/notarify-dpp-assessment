@@ -171,43 +171,63 @@ export class PublicPassportService {
   }
 
   /**
-   * Loads the bytes of assets the current active version is allowed to expose.
+   * Resolves everything the PDF export needs from one active version.
    *
-   * This is the same authorization boundary the public asset route uses, batched for
-   * the PDF export: the active version is resolved once, only ids retained by that exact
-   * version are kept, and only those ids are read back as accepted content. A draft-only,
-   * historical-only, foreign or non-accepted asset is therefore absent from the result
-   * rather than merely filtered afterwards.
+   * The view, the stored QR artifact and the retained image bytes are all read against a
+   * single `resolveActive` result. That matters under concurrency: resolving the version
+   * again for each step could mix a republish's two versions into one export (a v1 view
+   * with v2's retained assets, or vice versa).
    *
-   * The caller decides which of the retained assets it actually needs; this method never
-   * widens visibility by itself.
+   * Image authorization is the same rule the public asset route uses: only assets with a
+   * `PassportVersionAsset` row for this exact version, still accepted and with stored
+   * content, come back. Draft-only, historical-only, foreign and non-accepted assets are
+   * absent rather than filtered afterwards.
    */
-  async readRetainedAssets(
-    publicUuid: string,
-    assetIds: string[],
-  ): Promise<
-    Array<{ assetId: string; detectedMime: string; originalName: string; bytes: Buffer }>
-  > {
-    const candidates = [...new Set(assetIds)].filter((assetId) => isUUID(assetId))
-    if (candidates.length === 0) {
-      return []
-    }
-
+  async getCurrentVersionExport(publicUuid: string): Promise<{
+    view: PassportView
+    qrPng: Buffer
+    retainedImages: Array<{ assetId: string; detectedMime: string; bytes: Buffer }>
+  }> {
     const active = await this.resolveActive(publicUuid)
-    const retained = await this.prisma.passportVersionAsset.findMany({
-      where: { versionId: active.versionId, assetId: { in: candidates } },
-      select: { assetId: true },
+    const view = buildPassportView({
+      snapshot: active.publicSnapshot,
+      publicUuid: active.publicUuid,
+      versionNumber: active.versionNumber,
+      firstPublishedAt: active.firstPublishedAt,
+      publishedAt: active.publishedAt,
+      publicAppOrigin: this.config.getOrThrow<string>('PUBLIC_APP_ORIGIN'),
     })
-    if (retained.length === 0) {
-      return []
+
+    // The QR is passport-level, so a republish cannot change it, but a passport whose
+    // stored artifact is missing is still not exportable.
+    const passport = await this.prisma.passport.findUnique({
+      where: { publicUuid: active.publicUuid },
+      select: { qrPngBytes: true },
+    })
+    if (passport === null) {
+      throw passportNotFound()
     }
 
+    const imageIds = [...new Set(view.images.map((image) => image.assetId))].filter((assetId) =>
+      isUUID(assetId),
+    )
+    const retained =
+      imageIds.length === 0
+        ? []
+        : await this.prisma.passportVersionAsset.findMany({
+            where: { versionId: active.versionId, assetId: { in: imageIds } },
+            select: { assetId: true },
+          })
     const contents = await this.assets.findAcceptedContentsByIds(retained.map((row) => row.assetId))
-    return contents.map((content) => ({
-      assetId: content.id,
-      detectedMime: content.detectedMime,
-      originalName: content.originalName,
-      bytes: content.bytes,
-    }))
+
+    return {
+      view,
+      qrPng: Buffer.from(passport.qrPngBytes),
+      retainedImages: contents.map((content) => ({
+        assetId: content.id,
+        detectedMime: content.detectedMime,
+        bytes: content.bytes,
+      })),
+    }
   }
 }
