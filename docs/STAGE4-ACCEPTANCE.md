@@ -107,9 +107,20 @@ Cristian actually performs them:
 
 ## Known limitations
 
-- No analytics, Redis or PDF cache exists yet; Stage 5 owns them.
-- Product `Delete`/withdraw and a read-only `View` destination are Stage 6 work; the
-  Product table renders an explicit Total Views placeholder rather than inventing data.
+- This map records the **Stage 4** result: it proves the publication subsystem as it existed before
+  analytics. Stage 5 later added instrumentation deliberately, so two observations here are
+  intentionally superseded — `/q/:uuid` now records one `QR_HIT` and a visible public page
+  navigation records one idempotent `VIEW`. Everything else still records nothing: the JSON
+  projection, asset downloads, QR image downloads, PDF downloads, the editor Preview and the
+  historical back-office view. The journey's assertions were reconciled to that current truth
+  rather than deleted, and this historical result is not rewritten.
+- A server-side Redis cache of immutable published content exists as of Stage 5. It never caches
+  visibility, the current-version pointer, asset bytes or PDF bytes, and every public read still
+  resolves existence, withdrawal, soft deletion and the current version from PostgreSQL first.
+  Public HTTP responses remain `Cache-Control: no-store`.
+- Product `Delete`/withdraw and a read-only `View` destination are Stage 6 work. The Product
+  table's Total Views column is a measured value as of Stage 5: an unpublished product reports a
+  real `0`, and the Stage 4.6 placeholder assertion was replaced with a database comparison.
 - The e2e fixtures run against a disposable database that accumulates rows across runs;
   the acceptance journey therefore uses run-unique names and stable UUID filters.
 - Peak concurrent PDF exports and real client-disconnect behavior are not measured.

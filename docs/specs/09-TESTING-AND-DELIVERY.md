@@ -62,3 +62,13 @@ Final repository includes source for backend/frontend, Dockerfiles/Compose, migr
 README covers prerequisites, exact setup/start/migrate/seed/test commands, credential setup, URLs, required/bonus coverage, deployment and known limitations. Architecture covers system shape, decisions, database, security, scaling and future work. Add an AI usage summary and evidence log, clearly separating completed work from proposals.
 
 Final rehearsal: start from a clean checkout and empty database, follow only the README, complete the reviewer journey, download QR/PDF, restart, restore a backup, then reconcile every claim with actual results. Tag the reviewed commit. Confirm the submission cutoff timezone if timing becomes material.
+
+## Implementation update — 2026-09-25 (Stage 5)
+
+The integration contract grew to **11 suites / 181 tests** with the addition of `apps/api/test/analytics.e2e-spec.ts` (ingestion, `VIEW` idempotency including concurrent retries, UTC boundaries, dashboard counters, ranking ranges, role-shaped scan projections and Product totals) and `apps/api/test/passport-cache.e2e-spec.ts` (hit/miss, TTL, corrupt and wrong-version payloads, a dead endpoint, a disabled cache, republish key switching and withdrawn/deleted passports behind a warm entry).
+
+`pnpm test:e2e` grew to **59 Playwright tests** with `e2e/analytics.spec.ts` (dashboard counters for both roles, the analytics page and its range selector, Admin-versus-Editor address visibility, one view per visible navigation, a same-key retry that is not double counted, no view from the editor Preview, a QR scan that still redirects, and the measured Total Views column).
+
+The cache suite requires a **real Redis**; `REDIS_URL` selects it and defaults to `redis://127.0.0.1:6390` locally. `.github/workflows/ci.yml` therefore runs a pinned `redis:8.10.2` service alongside PostgreSQL 18.6 and exports `REDIS_URL` to the repository contract and the browser suite. This is test infrastructure only: Stage 7 still owns the application Compose stack. A cache outage is deliberately not fatal to the suite, because the API is required to fall back to PostgreSQL.
+
+The Stage 4.6 acceptance journey was reconciled rather than weakened: its former "analytics and audit tables unchanged" assertions now assert the *current* truth per surface — the QR resolver records exactly one scan, the JSON projection, PDF, QR image and asset downloads record nothing, the JS-disabled SSR visitor records no view, a visible browser navigation records exactly one, and the daily aggregates must agree with the raw rows in both directions. No Stage 4 asset-authorization, draft-isolation, historical-immutability or role-separation assertion was removed.
