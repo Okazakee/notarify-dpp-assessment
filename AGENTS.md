@@ -14,7 +14,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.3 (public Passport UI, editor Preview and Publish UX) is merged into `main`.** The anonymous public Passport page, the shared presentation component, the seven-tab editor, the draft Preview and the Publish/Republish interaction exist; the remaining Stage 4 milestones do not.
 
-**Stage 4.4 (back-office Passports and complete version history) is implemented and locally validated on `build/passport-history`; it is not merged yet.**
+**Stage 4.4 (back-office Passports and complete version history) is merged into `main`.**
 
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
@@ -97,9 +97,9 @@ Verified on 2026-09-23 on `build/public-passport-api`, and re-verified on the me
 
 Verified on 2026-09-24 on `build/passport-ui`: `pnpm check` passes (89 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 24 of 24 against the built stack; `pnpm audit` reports no known vulnerabilities. CI is green on `7550600` (run `36027931967`): 89 files linted, 6 suites / 110 of 110 integration tests against a fresh PostgreSQL 18.6 service, 24 of 24 Playwright tests and no known vulnerabilities.
 
-Stage 4.3 Gate 7 correction locally verified on 2026-09-24: `pnpm check` passes (89 files linted, both workspaces typecheck and build, 6 integration suites / 110 tests); `pnpm test:e2e` passes 25 of 25; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `a728865e` passed CI run `36046019904`; the `--no-ff` merge commit `b925a856` on `main` passed CI run `36049440655`. A subsequent documentation-only `main` commit requires its own final-HEAD CI.
+Stage 4.3 Gate 7 correction locally verified on 2026-09-24: `pnpm check` passes (89 files linted, both workspaces typecheck and build, 6 integration suites / 110 tests); `pnpm test:e2e` passes 25 of 25; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `a728865e` passed CI run `36046019904`; the `--no-ff` merge commit `b925a856` on `main` passed CI run `36049440655`; the documentation-only follow-up `651008e` passed CI run `36050341353`.
 
-Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm check` passes (104 files linted with no diagnostics, both workspaces typecheck and build, 7 integration suites with 128 of 128 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 33 of 33 against the built stack; `pnpm audit` reports no known vulnerabilities. The Stage 4.4 branch tip `d99b8e4` then passed CI run `36140600586` (lint, typecheck, build, 128 integration tests against a fresh PostgreSQL 18.6 service, 33 Playwright tests and dependency audit). A subsequent documentation-only commit requires its own final-HEAD CI.
+Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm check` passes (104 files linted with no diagnostics, both workspaces typecheck and build, 7 integration suites with 128 of 128 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 33 of 33 against the built stack; `pnpm audit` reports no known vulnerabilities. The documentation-only tip `d99b8e4` passed CI run `36140600586`, and the accepted final tip `033680a` passed CI run `36141115620`. The `--no-ff` merge commit is `57ade8315ffb04ed44c0e445eca93619735a55f4`, and the merged `main` passed CI run `36146706397` (lint, typecheck, build, 128 integration tests against a fresh PostgreSQL 18.6 service, 33 Playwright tests and dependency audit).
 
 ## The specs are authoritative
 
@@ -130,7 +130,9 @@ Rules:
 
 **Recorded and implemented:** publishing is **not** Admin-only. An Editor may publish and republish. `POST /products/:id/publish` is deliberately role-agnostic: it requires an authenticated actor, and no code gates publish to `ADMIN`.
 
-Still open: permission semantics beyond publishing, analytics definitions and retention, session lifetimes, audit retention. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
+Still open: permission semantics for features that do not exist yet (Users/Settings management beyond its recorded Admin-only cells, raw analytics and audit detail, any future review workflow), analytics definitions and retention, session lifetimes, audit retention. Anything marked *proposed* or *recommended* is a working default, **not** an employer instruction.
+
+Settled and implemented, so do not present them as open: **both roles** may manage current publications — list company passports, open the current public Passport and download its QR — while **Admin alone** may list and inspect historical Passport versions and retrieve historical-version Assets. Backend authorization is authoritative; hiding a UI action is presentation only. Anything marked *proposed* or *recommended* is a working default, **not an employer instruction**.
 
 Settled and recorded, so do not re-open them from a spec: **published-edit visibility** (unsaved and saved edits remain private until explicit republish; stable UUID/QR), **verification badge meaning** is a prototype/application-level indicator on an active published passport, with no review or approval subsystem required (`PassportReview` may stay unused infrastructure), and **historical-version visibility** is back-office only with no public historical route. **File limits** are locked and implemented — see section B5 of `docs/IMPLEMENTATION-DECISIONS.md`.
 
