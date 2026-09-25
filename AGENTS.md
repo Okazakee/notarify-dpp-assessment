@@ -16,6 +16,8 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.4 (back-office Passports and complete version history) is merged into `main`.**
 
+**Stage 4.5 (Passport PDF export) is implemented and locally validated on `build/passport-pdf`; it is not merged yet.**
+
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
 - **`apps/api`** — NestJS 12.0.4 family, Prisma through `@prisma/adapter-pg`.
@@ -25,10 +27,11 @@ Implemented:
   - Publication: `POST /products/:id/publish` creates the stable Passport identity, an immutable `PassportVersion`, its retained `PassportVersionAsset` references and the QR artifact in one transaction. QR rendering uses `qrcode` 1.5.4. Publication writes **no** `AuditEvent`; the audit-log bonus is a separate milestone.
   - Public passport (anonymous, no guard): `GET /passport/:uuid` projects the current immutable published version; `GET /passport/:uuid/assets/:assetId` serves bytes retained by that version; `GET /passport/:uuid/qr.png` serves the stored QR artifact; `GET /q/:uuid` resolves a scan with a 302 to the canonical page. The web app bridges `/q/:uuid` to the API with a single-segment rewrite.
   - Passports (authenticated back office): `GET /passports` lists the caller company's active publications with bounded pagination for both roles; Admin-only `GET /passports/:passportId/versions` lists every retained version, `GET /passports/:passportId/versions/:versionNumber` projects one immutable version, and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId` serves an asset retained by exactly that version. Role enforcement is a `RolesGuard` after `AccessTokenGuard`; the historical projection shares the validated snapshot interpretation with the public one.
+  - Passport PDF (anonymous, no guard): `GET /passport/:uuid/pdf` streams an A4 document of the current immutable published version, rendered server-side with PDFKit from the shared snapshot projection, embedding the stored QR artifact and the retained current-version images. It shares the public passport's active-visibility resolution and safe 404 contract, and it has no historical variant.
 - **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters, pagination, cover images and publication actions, the back-office `/passports` list with current-publication actions for both roles, the Admin-only `/passports/[passportId]` version history, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, Passport PDF export, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment. The Product table still owes `Total Views` to Stage 5 and Product delete plus a read-only `View` destination to Stage 6; `Total Views` renders an explicit "Available after analytics" placeholder rather than an invented `0`.
+Not implemented, and not to be assumed: product delete/withdraw, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment. The Product table still owes `Total Views` to Stage 5 and Product delete plus a read-only `View` destination to Stage 6; `Total Views` renders an explicit "Available after analytics" placeholder rather than an invented `0`.
 
 ### Proven asset invariants — do not weaken
 
@@ -63,6 +66,21 @@ Not implemented, and not to be assumed: product delete/withdraw, Passport PDF ex
 - The `/q/:uuid` redirect target comes from validated `PUBLIC_APP_ORIGIN` plus the stored UUID, never from the request `Host` header.
 - Every public response is `no-store`; there is no public caching yet.
 - The web `/q/:uuid` bridge is a single-segment rewrite to the configured API origin, so it cannot proxy arbitrary paths or hosts.
+
+### Proven PDF export invariants — do not weaken
+
+- `/passport/:uuid/pdf` exports only the current active immutable published version, through the same active-visibility resolution and the same safe 404 contract as `GET /passport/:uuid`. Malformed, unknown, withdrawn and soft-deleted states are indistinguishable.
+- PDF generation never reads mutable Product content, the draft, or the editor state. It consumes the shared `buildPassportContent`/`buildPassportView` projection of the selected version's snapshot.
+- The view, the stored QR artifact and the retained image bytes are resolved from one active-version result, so a concurrent republish cannot mix two versions into a single export.
+- The PDF embeds the **stored** `Passport.qrPngBytes`; no code path regenerates a QR for an export. A missing or corrupt stored artifact makes the export unavailable (controlled 500) rather than printing a substitute identity.
+- Every embedded image must be retained by the current version (`PassportVersionAsset(versionId, assetId)`), still `ACCEPTED` and still have stored content. Draft-only, historical-only, foreign and non-accepted assets are never embedded, and a failed optional image is omitted or shown as a placeholder instead of falling back to a draft file.
+- WebP is converted in memory to PNG with `sharp`; JPEG and PNG pass through unchanged when already within bounds. Conversions never mutate stored bytes, create a new `Asset`, or upscale, and they run sequentially with a 1600 px longest-side bound.
+- Text is embedded with full Noto Sans regular/bold (`@expo-google-fonts/noto-sans`), not PDF Standard 14 fonts, so mixed European text survives.
+- Rendering is server-side and streamed: the document is piped to the response before its content is drawn, no temporary file is written, and a failure after streaming starts aborts the response instead of finishing a truncated download.
+- The response carries `application/pdf`, an `attachment` disposition with the deterministic `notarify-passport-{uuid}-v{version}.pdf` filename, `nosniff`, `no-store` (also on preflight failures) and a `cross-origin` resource policy.
+- There is no PDF cache and no Redis: a republish changes what the same public URL exports immediately.
+- There is no historical PDF route. The public page and Product Passports (both roles) offer the current export; draft Preview and the historical version view do not advertise one.
+- The PDF writes no `AnalyticsEvent`, no `AnalyticsDaily` and no `AuditEvent`. A download is neither a scan nor a view.
 
 ### Proven back-office passport invariants — do not weaken
 
@@ -100,6 +118,8 @@ Verified on 2026-09-24 on `build/passport-ui`: `pnpm check` passes (89 files lin
 Stage 4.3 Gate 7 correction locally verified on 2026-09-24: `pnpm check` passes (89 files linted, both workspaces typecheck and build, 6 integration suites / 110 tests); `pnpm test:e2e` passes 25 of 25; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `a728865e` passed CI run `36046019904`; the `--no-ff` merge commit `b925a856` on `main` passed CI run `36049440655`; the documentation-only follow-up `651008e` passed CI run `36050341353`.
 
 Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm check` passes (104 files linted with no diagnostics, both workspaces typecheck and build, 7 integration suites with 128 of 128 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 33 of 33 against the built stack; `pnpm audit` reports no known vulnerabilities. The documentation-only tip `d99b8e4` passed CI run `36140600586`, and the accepted final tip `033680a` passed CI run `36141115620`. The `--no-ff` merge commit is `57ade8315ffb04ed44c0e445eca93619735a55f4`, and the merged `main` passed CI run `36146706397` (lint, typecheck, build, 128 integration tests against a fresh PostgreSQL 18.6 service, 33 Playwright tests and dependency audit).
+
+Stage 4.5 locally verified on 2026-09-25 on `build/passport-pdf`: `pnpm check` passes (110 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 145 of 145 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 38 of 38 against the built stack; `pnpm audit` reports no known vulnerabilities. Those runs are local evidence only until the branch HEAD has green CI.
 
 ## The specs are authoritative
 
@@ -187,7 +207,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts`, `apps/api/test/public-passport.e2e-spec.ts` and `apps/api/test/passports.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (7 suites, 128 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts`, `e2e/public-passport.spec.ts`, `e2e/passport-ui.spec.ts` and `e2e/passports.spec.ts` via `pnpm test:e2e` (33 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts`, `apps/api/test/public-passport.e2e-spec.ts`, `apps/api/test/passports.e2e-spec.ts`, `apps/api/test/passport-pdf.e2e-spec.ts` and `apps/api/test/passport-pdf-stream.spec.ts` via `pnpm --filter @notarify/api test:integration` (9 suites, 145 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts`, `e2e/public-passport.spec.ts`, `e2e/passport-ui.spec.ts`, `e2e/passports.spec.ts` and `e2e/passport-pdf.spec.ts` via `pnpm test:e2e` (38 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.

@@ -22,6 +22,7 @@ export type PassportView = {
     publicUrl: string
     qrTargetUrl: string
     qrDownloadUrl: string
+    pdfDownloadUrl: string
   }
   brand: { displayName: string }
   product: {
@@ -115,7 +116,8 @@ export function isPassportView(value: unknown): value is PassportView {
     typeof passport.version === 'number' &&
     typeof passport.publishedAt === 'string' &&
     typeof passport.publicUrl === 'string' &&
-    typeof passport.qrDownloadUrl === 'string'
+    typeof passport.qrDownloadUrl === 'string' &&
+    typeof passport.pdfDownloadUrl === 'string'
   if (!passportOk || typeof brand.displayName !== 'string') {
     return false
   }
@@ -195,6 +197,7 @@ export function toPublicPresentationModel(view: PassportView): PassportPresentat
       verificationStatus: 'VERIFIED',
       publicUrl: view.passport.publicUrl,
       qrDownloadUrl: apiUrl(view.passport.qrDownloadUrl),
+      pdfDownloadUrl: apiUrl(view.passport.pdfDownloadUrl),
     },
     brand: { displayName: view.brand.displayName },
     product: view.product,

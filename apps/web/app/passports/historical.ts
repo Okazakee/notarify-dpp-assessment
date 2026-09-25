@@ -8,10 +8,11 @@ import type { HistoricalPassportView } from './types'
  * historical version cannot drift into a second visual implementation. Two deliberate
  * differences keep the presentation honest:
  *
- * - `publicUrl` and `qrDownloadUrl` are null. Both belong to the passport's *current*
- *   version, and `/passport/:uuid` always serves that version. The back-office chrome
- *   offers those actions separately, labelled as current, instead of letting a
- *   historical view imply that the public URL opens the selected old version.
+ * - `publicUrl`, `qrDownloadUrl` and `pdfDownloadUrl` are null. Those belong to the
+ *   passport's *current* version, and the export route serves the current version only.
+ *   The back-office chrome offers those actions separately, labelled as current, instead
+ *   of letting a historical view imply that the public URL or the PDF opens the selected
+ *   old version.
  * - Image and file hrefs come from authenticated blob object URLs keyed by asset id.
  *   Historical bytes are private; a direct href would carry no access token.
  */
@@ -29,6 +30,8 @@ export function toHistoricalPresentationModel(
       verificationStatus: 'VERIFIED',
       publicUrl: null,
       qrDownloadUrl: null,
+      // No historical PDF route exists; the export always describes the current version.
+      pdfDownloadUrl: null,
     },
     brand: { displayName: view.brand.displayName },
     product: view.product,

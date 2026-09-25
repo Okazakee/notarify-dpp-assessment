@@ -231,6 +231,13 @@ export default function PassportsPage() {
                             >
                               Download QR
                             </a>
+                            <a
+                              className="btn btn-xs btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                              href={apiUrl(passport.pdfDownloadUrl)}
+                              data-testid="download-pdf"
+                            >
+                              Download PDF
+                            </a>
                             <Link
                               className="btn btn-xs btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
                               href={`/products/${passport.productId}`}

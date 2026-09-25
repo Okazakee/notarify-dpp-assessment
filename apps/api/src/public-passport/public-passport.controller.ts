@@ -1,6 +1,13 @@
-import { Controller, Get, Header, HttpStatus, Param, Res } from '@nestjs/common'
+import { Controller, Get, Header, HttpStatus, Logger, Param, Req, Res } from '@nestjs/common'
 import { PDF_MIME_TYPE } from '../assets/asset-processing.js'
-import { type BinaryHttpResponse, writeBinaryResponse } from '../common/binary-response.js'
+import {
+  type BinaryHttpResponse,
+  contentDisposition,
+  writeBinaryResponse,
+} from '../common/binary-response.js'
+import type { ParsedRequest } from '../common/http-types.js'
+import { PassportPdfService } from './passport-pdf.service.js'
+import { type StreamingHttpResponse, streamPdfResponse } from './passport-pdf-stream.js'
 import { type PassportView, passportNotFound } from './passport-view.js'
 import { PublicPassportService } from './public-passport.service.js'
 
@@ -13,7 +20,12 @@ import { PublicPassportService } from './public-passport.service.js'
  */
 @Controller()
 export class PublicPassportController {
-  constructor(private readonly passports: PublicPassportService) {}
+  private readonly logger = new Logger(PublicPassportController.name)
+
+  constructor(
+    private readonly passports: PublicPassportService,
+    private readonly pdfExport: PassportPdfService,
+  ) {}
 
   /** The public projection of the current published version. */
   @Get('passport/:uuid')
@@ -21,6 +33,56 @@ export class PublicPassportController {
   @Header('Cache-Control', 'no-store')
   async view(@Param('uuid') uuid: string): Promise<PassportView> {
     return this.passports.getPassportView(uuid)
+  }
+
+  /**
+   * Exports the current published passport as a PDF.
+   *
+   * Intentionally anonymous, because the current passport it exports is already
+   * anonymous. It uses exactly the same active-visibility resolution as `GET
+   * /passport/:uuid`, so malformed, unknown, withdrawn and deleted states all produce the
+   * same safe 404 as JSON.
+   *
+   * The document is generated from the current immutable published version, embeds the
+   * stored QR artifact and streams directly to the client. A historical version has no
+   * PDF route.
+   */
+  @Get('passport/:uuid/pdf')
+  // Route-level, so a preflight failure also carries `no-store` rather than only a
+  // successful download. A republish moves the current version while the public UUID
+  // stays stable, so the export must never be served from a shared cache.
+  @Header('Cache-Control', 'no-store')
+  async pdf(
+    @Req() request: ParsedRequest,
+    @Param('uuid') uuid: string,
+    @Res() response: StreamingHttpResponse,
+  ): Promise<void> {
+    // Everything is resolved before a single byte of PDF is written, so an ordinary
+    // lifecycle failure is still the standard JSON 404 rather than a half-started file.
+    const { document, draw, filename } = await this.pdfExport.create(uuid)
+
+    response.setHeader('Content-Type', 'application/pdf')
+    response.setHeader('Content-Disposition', contentDisposition(filename, 'attachment'))
+    response.setHeader('X-Content-Type-Options', 'nosniff')
+    // Deliberately public downloadable content, and the web origin is not necessarily
+    // the API origin.
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+
+    await streamPdfResponse({
+      response,
+      document,
+      draw,
+      onError: (error: unknown) => {
+        // Once streaming has begun there is nothing safe left to send. The response is
+        // aborted by the helper rather than finished, so a truncated body is never
+        // presented as a complete download, and only a safe diagnostic is logged.
+        this.logger.error(
+          `Passport PDF streaming failed requestId=${request.requestId ?? 'unknown'} error=${
+            error instanceof Error ? error.name : 'unknown'
+          }`,
+        )
+      },
+    })
   }
 
   /**

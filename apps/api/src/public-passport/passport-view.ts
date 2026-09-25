@@ -37,6 +37,11 @@ export type PassportView = {
     publicUrl: string
     qrTargetUrl: string
     qrDownloadUrl: string
+    /**
+     * The exported PDF of this same current version. API-relative, like the QR
+     * download, so the API does not need to know its own origin.
+     */
+    pdfDownloadUrl: string
   }
   brand: {
     displayName: string
@@ -125,6 +130,7 @@ export function buildPassportView(input: {
       publicUrl: `${publicAppOrigin}/passport/${publicUuid}`,
       qrTargetUrl: `${publicAppOrigin}/q/${publicUuid}`,
       qrDownloadUrl: `/passport/${publicUuid}/qr.png`,
+      pdfDownloadUrl: `/passport/${publicUuid}/pdf`,
     },
     brand: content.brand,
     product: content.product,

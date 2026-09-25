@@ -336,6 +336,7 @@ export class PassportsService {
       currentPublishedAt: current.publishedAt.toISOString(),
       publicUrl: `${this.publicAppOrigin()}/passport/${row.publicUuid}`,
       qrDownloadUrl: `/passport/${row.publicUuid}/qr.png`,
+      pdfDownloadUrl: `/passport/${row.publicUuid}/pdf`,
     }
   }
 

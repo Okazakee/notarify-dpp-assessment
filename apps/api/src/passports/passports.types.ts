@@ -39,6 +39,8 @@ export type PassportListItem = {
   publicUrl: string
   /** The passport-level QR artifact. One QR per passport, stable across versions. */
   qrDownloadUrl: string
+  /** The PDF export of the same current version, for both roles. */
+  pdfDownloadUrl: string
 }
 
 export type PassportListResponse = {

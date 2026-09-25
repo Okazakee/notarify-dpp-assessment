@@ -27,6 +27,8 @@ export type PassportListItem = {
   /** The current public version. Never the selected historical version. */
   publicUrl: string
   qrDownloadUrl: string
+  /** The PDF export of the current version. There is no historical PDF. */
+  pdfDownloadUrl: string
 }
 
 export type PassportListResponse = {
@@ -159,7 +161,8 @@ export function isPassportListItem(value: unknown): value is PassportListItem {
     typeof value.firstPublishedAt === 'string' &&
     typeof value.currentPublishedAt === 'string' &&
     typeof value.publicUrl === 'string' &&
-    typeof value.qrDownloadUrl === 'string'
+    typeof value.qrDownloadUrl === 'string' &&
+    typeof value.pdfDownloadUrl === 'string'
   )
 }
 

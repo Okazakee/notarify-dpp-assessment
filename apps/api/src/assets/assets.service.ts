@@ -212,6 +212,53 @@ export class AssetsService {
   }
 
   /**
+   * Loads the accepted content of several assets in one query.
+   *
+   * Same trust boundary as `findAcceptedContentById`: it performs no authorization of
+   * its own and must only be called after the caller has established that every id may
+   * be served. It exists so a bounded batch read — currently the passport PDF, which
+   * embeds several retained images — does not become one query per asset. Malformed ids
+   * are dropped rather than passed to the driver, and a missing or non-accepted asset is
+   * simply absent from the result.
+   */
+  async findAcceptedContentsByIds(assetIds: string[]): Promise<
+    Array<{
+      id: string
+      detectedMime: string
+      originalName: string
+      bytes: Buffer
+    }>
+  > {
+    const uniqueIds = [...new Set(assetIds)].filter((assetId) => isUUID(assetId))
+    if (uniqueIds.length === 0) {
+      return []
+    }
+
+    const assets = await this.prisma.asset.findMany({
+      where: { id: { in: uniqueIds }, state: AssetState.ACCEPTED },
+      select: {
+        id: true,
+        detectedMime: true,
+        originalName: true,
+        content: { select: { bytes: true } },
+      },
+    })
+
+    return assets.flatMap((asset) =>
+      asset.content === null
+        ? []
+        : [
+            {
+              id: asset.id,
+              detectedMime: asset.detectedMime,
+              originalName: asset.originalName,
+              bytes: Buffer.from(asset.content.bytes),
+            },
+          ],
+    )
+  }
+
+  /**
    * Resolves the assets a product draft is allowed to reference.
    *
    * Only accepted, same-company assets are returned, and the query is scoped by

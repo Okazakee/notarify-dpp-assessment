@@ -274,6 +274,7 @@ describe('Back-office passport list', () => {
     expect(row.hasUnpublishedChanges).toBe(false)
     expect(row.publicUrl).toBe(`${PUBLIC_APP_ORIGIN}/passport/${published.publicUuid}`)
     expect(row.qrDownloadUrl).toBe(`/passport/${published.publicUuid}/qr.png`)
+    expect(row.pdfDownloadUrl).toBe(`/passport/${published.publicUuid}/pdf`)
     expect(new Date(row.firstPublishedAt).toString()).not.toBe('Invalid Date')
     expect(new Date(row.currentPublishedAt).toString()).not.toBe('Invalid Date')
 
