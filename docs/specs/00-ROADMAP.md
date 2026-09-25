@@ -44,7 +44,7 @@ P0 = required functionality plus the security/testing needed to trust it. P1 = b
 | 6 | Remaining required back-office and lifecycle work: Product DELETE, Users, Settings, and the audit and soft-delete bonuses | Soft delete, audit logs | Every assessment-required route and action exists, is authorized, and is covered |
 | 7 | Docker/Compose completion and testing, migrations, seed, Swagger/OpenAPI, README, architecture document, final E2E, security checks, clean-clone validation and final reconciliation | Unit/integration/E2E evidence consolidated | Reviewer can run it and Cristian can explain critical paths |
 
-Stages 0–3 and Stages 4.1–4.5 are complete. Stages 4.1–4.5 are merged into `main`. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
+Stages 0–3 and Stages 4.1–4.6 are complete. Stages 4.1–4.5 are merged into `main`; Stage 4.6 is implemented and locally validated on `build/stage4-acceptance`, pending the milestone merge decision. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
 
 ### Stage 4 milestones
 
@@ -57,7 +57,7 @@ Stages 0–3 and Stages 4.1–4.5 are complete. Stages 4.1–4.5 are merged into
 | 4.5 | Passport PDF export: the current published passport, QR, required product and passport information, relevant content, safe server-side generation and download UX | A downloaded PDF matches the published version and is produced without a browser process |
 | 4.6 | Stage 4 acceptance and regression: first publish, draft edit after publication, republish, stable UUID/QR, old-version retention, public visibility, public file authorization, preview parity, historical version behaviour, PDF, responsive anonymous access and the required back-office actions | The Stage 4 acceptance matrix passes as one suite |
 
-Milestones 4.1–4.5 are implemented. Stage 4.6 (the Stage 4 acceptance suite) remains; the Product table still owes Total Views to Stage 5 and Product delete plus a read-only View destination to Stage 6, which is recorded rather than faked. Stage 4.5 exports the current published version only: the PDF is generated server-side from the immutable snapshot, reuses the stored QR artifact, and there is no historical PDF route.
+Milestones 4.1–4.6 are implemented. Stage 4 automated acceptance and regression pass as one matrix with one cross-milestone lifecycle journey — see [STAGE4-ACCEPTANCE.md](../STAGE4-ACCEPTANCE.md). The physical handset QR scan, Cristian's manual UI walkthrough and human source-code review remain explicitly outstanding manual acceptance items; Stage 5 has not started. The Product table still owes Total Views to Stage 5 and Product delete plus a read-only View destination to Stage 6, which is recorded rather than faked. Stage 4.5 exports the current published version only: the PDF is generated server-side from the immutable snapshot, reuses the stored QR artifact, and there is no historical PDF route.
 
 Historical versions are back-office only. No public historical-version route is planned; Stage 4.4 implemented `/passports` for both roles and the Admin-only `/passports/[passportId]` history view.
 
