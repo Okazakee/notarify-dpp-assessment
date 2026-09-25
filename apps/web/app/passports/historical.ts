@@ -48,14 +48,16 @@ export function toHistoricalPresentationModel(
       expirationDate: certification.expirationDate,
       fileHref:
         certification.pdfAssetId === null ? null : (objectUrls[certification.pdfAssetId] ?? null),
-      fileName: null,
+      // The stored filename lets the shared component name the download; the bytes still
+      // come from the authenticated blob URL in `fileHref`.
+      fileName: certification.originalName,
     })),
     documents: view.documents.map((document) => ({
       key: `document-${document.assetId}`,
       kind: toDocumentKind(document.kind),
       title: document.title,
       fileHref: objectUrls[document.assetId] ?? null,
-      fileName: null,
+      fileName: document.originalName,
     })),
     images: view.images.map((image) => ({
       assetId: image.assetId,

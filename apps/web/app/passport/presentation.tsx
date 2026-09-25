@@ -341,6 +341,7 @@ function CertificationsSection({
                 <a
                   className="link link-primary mt-3 inline-block text-sm"
                   href={certification.fileHref}
+                  download={hasText(certification.fileName) ? certification.fileName : undefined}
                   data-testid="certification-download"
                 >
                   {hasText(certification.fileName)
@@ -451,6 +452,7 @@ function DocumentsSection({ documents }: { documents: PassportPresentationModel[
                 <a
                   className="btn btn-outline btn-sm"
                   href={document.fileHref}
+                  download={hasText(document.fileName) ? document.fileName : undefined}
                   data-testid="document-download"
                 >
                   Download

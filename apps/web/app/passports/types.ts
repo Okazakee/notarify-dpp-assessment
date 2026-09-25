@@ -93,6 +93,7 @@ export type HistoricalPassportView = {
     issueDate: string | null
     expirationDate: string | null
     pdfAssetId: string | null
+    originalName: string | null
     downloadUrl: string | null
   }>
   images: Array<{
@@ -107,6 +108,7 @@ export type HistoricalPassportView = {
     kind: string
     title: string | null
     position: number
+    originalName: string | null
     downloadUrl: string
   }>
 }
@@ -250,6 +252,8 @@ export function isHistoricalPassportView(value: unknown): value is HistoricalPas
       isNullableString(entry.issuingAuthority) &&
       isNullableString(entry.issueDate) &&
       isNullableString(entry.expirationDate) &&
+      isNullableString(entry.pdfAssetId) &&
+      isNullableString(entry.originalName) &&
       isNullableString(entry.downloadUrl),
   )
   const imagesOk = isArrayOf(
@@ -265,8 +269,10 @@ export function isHistoricalPassportView(value: unknown): value is HistoricalPas
     value.documents,
     (entry) =>
       isRecord(entry) &&
+      typeof entry.assetId === 'string' &&
       typeof entry.kind === 'string' &&
       isNullableString(entry.title) &&
+      isNullableString(entry.originalName) &&
       typeof entry.downloadUrl === 'string',
   )
   const sustainabilityOk =

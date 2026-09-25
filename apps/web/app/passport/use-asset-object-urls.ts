@@ -15,6 +15,16 @@ import { type AuthenticatedRequest, fetchAssetObjectUrl } from '../products/api'
  * Every created URL is revoked, whether the effect is superseded, the ids change or the
  * component unmounts. No public visibility is added to make rendering work.
  */
+/**
+ * How many assets are fetched at once.
+ *
+ * Bounded on purpose: the shared presentation requests images and downloadable files
+ * together, and an unbounded `Promise.all` of many PDFs would make one slow file hold up
+ * every other asset and spike memory. Images are requested first by the adapters, so the
+ * cover appears without waiting for the documents behind it.
+ */
+const MAX_CONCURRENT_LOADS = 4
+
 function useObjectUrls(
   ids: readonly string[],
   load: (assetId: string) => Promise<string>,
@@ -28,38 +38,41 @@ function useObjectUrls(
     }
 
     let cancelled = false
-    const created: string[] = []
+    const created = new Set<string>()
+    let nextIndex = 0
+    setUrls({})
 
-    const run = async () => {
-      const entries = await Promise.all(
-        ids.map(async (assetId) => {
-          try {
-            const url = await load(assetId)
-            created.push(url)
-            return [assetId, url] as const
-          } catch {
-            return null
-          }
-        }),
-      )
-
-      if (cancelled) {
-        for (const url of created) {
+    const loadOne = async (assetId: string) => {
+      try {
+        const url = await load(assetId)
+        if (cancelled) {
+          // The effect was superseded while this request was in flight. Revoke now rather
+          // than waiting for every other request to settle, or this URL would leak.
           URL.revokeObjectURL(url)
+          return
         }
-        return
+        created.add(url)
+        setUrls((current) => ({ ...current, [assetId]: url }))
+      } catch {
+        // A missing or unreadable asset simply stays absent; the presentation renders its
+        // placeholder rather than failing the whole page.
       }
-
-      const next: Record<string, string> = {}
-      for (const entry of entries) {
-        if (entry !== null) {
-          next[entry[0]] = entry[1]
-        }
-      }
-      setUrls(next)
     }
 
-    void run()
+    const worker = async () => {
+      while (!cancelled && nextIndex < ids.length) {
+        const assetId = ids[nextIndex]
+        nextIndex += 1
+        if (assetId === undefined) {
+          return
+        }
+        await loadOne(assetId)
+      }
+    }
+
+    void Promise.all(
+      Array.from({ length: Math.min(MAX_CONCURRENT_LOADS, ids.length) }, () => worker()),
+    )
 
     return () => {
       cancelled = true

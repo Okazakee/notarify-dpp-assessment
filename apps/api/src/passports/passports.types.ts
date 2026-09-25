@@ -127,6 +127,8 @@ export type HistoricalPassportView = {
     issueDate: string | null
     expirationDate: string | null
     pdfAssetId: string | null
+    /** Stored original filename, for display and download naming only. */
+    originalName: string | null
     downloadUrl: string | null
   }>
   images: Array<{
@@ -141,6 +143,8 @@ export type HistoricalPassportView = {
     kind: string
     title: string | null
     position: number
+    /** Stored original filename, for display and download naming only. */
+    originalName: string | null
     downloadUrl: string
   }>
 }

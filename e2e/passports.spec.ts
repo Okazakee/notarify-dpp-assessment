@@ -324,10 +324,23 @@ test.describe('Admin version history', () => {
     await expect(cover).toBeVisible()
     await expect(cover).toHaveAttribute('src', /^blob:/)
 
+    // A retained PDF downloads from its authenticated blob URL under its stored filename,
+    // rather than opening inline because the blob lost the API's content disposition.
+    const documentLink = page.getByTestId('document-download')
+    await expect(documentLink).toHaveAttribute('download', 'manual.pdf')
+    await expect(documentLink).toHaveAttribute('href', /^blob:/)
+
     // The cover v1 retained is private again on the anonymous route; the current cover is
-    // the only anonymously readable one.
-    const retired = await request.get(`/passport/${fixture.publicUuid}/assets/${fixture.coverA}`)
+    // the only anonymously readable one. These URLs are built against the API origin
+    // explicitly: the Playwright base URL is the web app, which serves no asset route.
+    const retired = await request.get(
+      `${API}/passport/${fixture.publicUuid}/assets/${fixture.coverA}`,
+    )
     expect(retired.status()).toBe(404)
+    const current = await request.get(
+      `${API}/passport/${fixture.publicUuid}/assets/${fixture.coverB}`,
+    )
+    expect(current.status()).toBe(200)
     const active = await request.get(`${API}/passport/${fixture.publicUuid}`)
     expect(active.status()).toBe(200)
     expect((await active.json()).images[0].assetId).toBe(fixture.coverB)

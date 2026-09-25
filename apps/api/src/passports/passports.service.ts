@@ -162,6 +162,15 @@ export class PassportsService {
     const assetUrl = (assetId: string): string =>
       `/passports/${passportId}/versions/${version.versionNumber}/assets/${assetId}`
 
+    // Downloadable files carry their stored original filename so the browser can name the
+    // download. It is display metadata only; the bytes stay behind the authenticated route.
+    const fileNames = await this.loadAssetFileNames(companyId, [
+      ...content.documents.map((document) => document.assetId),
+      ...content.certifications.flatMap((certification) =>
+        certification.pdfAssetId === null ? [] : [certification.pdfAssetId],
+      ),
+    ])
+
     return {
       passport: {
         passportId: passport.id,
@@ -182,11 +191,16 @@ export class PassportsService {
       sustainability: content.sustainability,
       certifications: content.certifications.map((certification) => ({
         ...certification,
+        originalName:
+          certification.pdfAssetId === null
+            ? null
+            : (fileNames.get(certification.pdfAssetId) ?? null),
         downloadUrl: certification.pdfAssetId === null ? null : assetUrl(certification.pdfAssetId),
       })),
       images: content.images.map((image) => ({ ...image, url: assetUrl(image.assetId) })),
       documents: content.documents.map((document) => ({
         ...document,
+        originalName: fileNames.get(document.assetId) ?? null,
         downloadUrl: assetUrl(document.assetId),
       })),
     }
@@ -258,6 +272,27 @@ export class PassportsService {
     }
 
     return { passport, version }
+  }
+
+  /**
+   * Stored original filenames for display metadata, scoped to the caller's company.
+   *
+   * A name lookup that finds nothing simply yields no filename; it never authorizes
+   * anything, so a missing row cannot widen access.
+   */
+  private async loadAssetFileNames(
+    companyId: string,
+    assetIds: string[],
+  ): Promise<Map<string, string>> {
+    const unique = [...new Set(assetIds)]
+    if (unique.length === 0) {
+      return new Map()
+    }
+    const assets = await this.prisma.asset.findMany({
+      where: { id: { in: unique }, companyId },
+      select: { id: true, originalName: true },
+    })
+    return new Map(assets.map((asset) => [asset.id, asset.originalName]))
   }
 
   private async findCompanyPassport(

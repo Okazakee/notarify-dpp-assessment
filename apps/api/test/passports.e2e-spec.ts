@@ -383,6 +383,13 @@ describe('Back-office passport list', () => {
       .get('/passports?pageSize=101')
       .set(auth(token))
     expect(tooLarge.status).toBe(400)
+    expect(tooLarge.body.code).toBe('VALIDATION_ERROR')
+
+    const notANumber = await request(app.getHttpServer())
+      .get('/passports?page=abc')
+      .set(auth(token))
+    expect(notANumber.status).toBe(400)
+    expect(notANumber.body.code).toBe('VALIDATION_ERROR')
   })
 })
 
@@ -532,6 +539,52 @@ describe('Passport version history authorization', () => {
       expect([label, response.status]).toEqual([label, 404])
       expect([label, response.body.code]).toEqual([label, 'PASSPORT_NOT_FOUND'])
     }
+
+    // Every failure body is identical apart from the per-request id, so the response
+    // cannot be used to separate "foreign", "malformed" and "unknown".
+    const shape = (body: Record<string, unknown>): Record<string, unknown> => {
+      const { requestId: _requestId, ...rest } = body
+      return rest
+    }
+    for (const [label, response] of responses) {
+      expect([label, shape(response.body)]).toEqual([
+        label,
+        { statusCode: 404, code: 'PASSPORT_NOT_FOUND', message: 'Passport not found.' },
+      ])
+    }
+  })
+
+  it('re-reads the role from the database on every request, never from the token', async () => {
+    const fixture = await createFixture(UserRole.ADMIN)
+    const token = await login(fixture)
+    const draft = await publishableDraft(token, await createCategory())
+    const published = await publish(token, draft.productId, draft.draftRevision)
+    const base = `/passports/${published.passportId}/versions`
+
+    const allowed = await request(app.getHttpServer()).get(base).set(auth(token))
+    expect(allowed.status).toBe(200)
+
+    // The access token carries no role claim, so a same-session downgrade must take
+    // effect immediately for history while current-publication management stays open.
+    await prisma.user.update({ where: { id: fixture.userId }, data: { role: UserRole.EDITOR } })
+    try {
+      const denied = [
+        await request(app.getHttpServer()).get(base).set(auth(token)),
+        await request(app.getHttpServer()).get(`${base}/1`).set(auth(token)),
+        await request(app.getHttpServer())
+          .get(`${base}/1/assets/${draft.coverAssetId}`)
+          .set(auth(token)),
+      ]
+      for (const response of denied) {
+        expect(response.status).toBe(403)
+        expect(response.body.code).toBe('INSUFFICIENT_ROLE')
+      }
+
+      const list = await request(app.getHttpServer()).get('/passports').set(auth(token))
+      expect(list.status).toBe(200)
+    } finally {
+      await prisma.user.update({ where: { id: fixture.userId }, data: { role: UserRole.ADMIN } })
+    }
   })
 })
 
@@ -597,9 +650,11 @@ describe('Historical version detail', () => {
     expect(body.documents[0].downloadUrl).toBe(
       `/passports/${published.passportId}/versions/1/assets/${draft.documentAssetId}`,
     )
+    expect(body.documents[0].originalName).toBe('document.pdf')
     expect(body.certifications[0].downloadUrl).toBe(
       `/passports/${published.passportId}/versions/1/assets/${draft.certificationAssetId}`,
     )
+    expect(body.certifications[0].originalName).toBe('certificate.pdf')
 
     const serialized = JSON.stringify(body)
     expect(serialized).not.toContain('publicSnapshot')
