@@ -191,3 +191,20 @@ export const IMAGE_POLICY = {
   maxDimension: API_MAX_DIMENSION,
   maxPixels: API_MAX_PIXELS,
 } as const
+
+/**
+ * A solid-colour PNG, so an embedded image can be recognised by its pixels in tests that
+ * need to prove which asset a surface actually used.
+ */
+export async function solidPng(hex: string, size = 64): Promise<Buffer> {
+  return sharp({ create: { width: size, height: size, channels: 3, background: hex } })
+    .png()
+    .toBuffer()
+}
+
+/** A solid-colour WebP, which PDFKit cannot embed without conversion. */
+export async function solidWebp(hex: string, size = 64): Promise<Buffer> {
+  return sharp({ create: { width: size, height: size, channels: 3, background: hex } })
+    .webp()
+    .toBuffer()
+}

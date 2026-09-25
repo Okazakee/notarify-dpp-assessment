@@ -18,6 +18,8 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.5 (Passport PDF export) is merged into `main`.**
 
+**Stage 4.6 (full Stage 4 acceptance and regression) is implemented and locally validated on `build/stage4-acceptance`; it is not merged yet.** The evidence map is [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md): one cross-milestone lifecycle journey plus the existing focused suites prove Stage 4 as one subsystem, while the physical handset scan, Cristian's manual UI walkthrough and human source-code review remain explicitly unvalidated manual items.
+
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
 - **`apps/api`** — NestJS 12.0.4 family, Prisma through `@prisma/adapter-pg`.
@@ -121,6 +123,8 @@ Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm chec
 
 Stage 4.5 locally verified on 2026-09-25 on `build/passport-pdf`: `pnpm check` passes (110 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 145 of 145 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 38 of 38 against the built stack; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `94d36de` passed CI run `36154972651`. The `--no-ff` merge commit is `1867a670987a873988153b247e07d1e3c7e7f4a9`, and the merged `main` passed CI run `36156162845` (lint, typecheck, build, 145 integration tests against a fresh PostgreSQL 18.6 service, 38 Playwright tests and dependency audit).
 
+Stage 4.6 locally verified on 2026-09-25 on `build/stage4-acceptance`: `pnpm check` passes (112 files linted with no diagnostics, both workspaces typecheck and build, 9 integration suites with 146 of 146 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 49 of 49 against the built stack, including the 11-case Stage 4 acceptance journey; `pnpm audit` reports no known vulnerabilities. Those runs are local evidence only until the branch HEAD has green CI.
+
 ## The specs are authoritative
 
 `docs/specs/` is the single source of truth. Start at [00-ROADMAP.md](docs/specs/00-ROADMAP.md).
@@ -207,7 +211,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts`, `apps/api/test/public-passport.e2e-spec.ts`, `apps/api/test/passports.e2e-spec.ts`, `apps/api/test/passport-pdf.e2e-spec.ts` and `apps/api/test/passport-pdf-stream.spec.ts` via `pnpm --filter @notarify/api test:integration` (9 suites, 145 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts`, `e2e/public-passport.spec.ts`, `e2e/passport-ui.spec.ts`, `e2e/passports.spec.ts` and `e2e/passport-pdf.spec.ts` via `pnpm test:e2e` (38 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts`, `apps/api/test/public-passport.e2e-spec.ts`, `apps/api/test/passports.e2e-spec.ts`, `apps/api/test/passport-pdf.e2e-spec.ts` and `apps/api/test/passport-pdf-stream.spec.ts` via `pnpm --filter @notarify/api test:integration` (9 suites, 146 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts`, `e2e/public-passport.spec.ts`, `e2e/passport-ui.spec.ts`, `e2e/passports.spec.ts`, `e2e/passport-pdf.spec.ts` and `e2e/stage4-acceptance.spec.ts` via `pnpm test:e2e` (49 Playwright tests, built API + web). The Stage 4 evidence map is [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.
