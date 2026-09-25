@@ -112,7 +112,7 @@ Recorded 2026-09-23. The roadmap was revalidated against the original assessment
 | Decision | Value |
 | --- | --- |
 | Stage model | Stages 0–7. Stages 0–3 are complete. Stage 4 (publication and Product Passports) is delivered as six independent milestones, 4.1–4.6. Stage 5 is analytics, dashboard and Redis. Stage 6 is the remaining required back-office and lifecycle work. Stage 7 is delivery and submission. |
-| Bonus scope | All nine bonuses remain in scope and none is optional or expendable: full-text search, Passport versioning, soft delete, audit logs, Redis, pagination/advanced filtering, Passport PDF export, drag-and-drop uploads and automated tests. Search, pagination/filtering, drag-and-drop and automated tests are implemented. |
+| Bonus scope | All nine bonuses remain in scope and none is optional or expendable: full-text search, Passport versioning, soft delete, audit logs, Redis, pagination/advanced filtering, Passport PDF export, drag-and-drop uploads and automated tests. Search, pagination/filtering, drag-and-drop, automated tests, Passport versioning and Passport PDF export are implemented. |
 | Stage ownership of remaining work | Passport versioning in 4.1; PDF export in 4.5; soft delete, audit logs and Users/Settings in Stage 6; Redis in Stage 5. Product DELETE is required work and belongs to Stage 6. |
 | Historical-version visibility | Back-office only. No public historical-version route is planned. |
 | Verification semantics | The public UI needs a Verified Product badge and a verification status. That is satisfied by prototype/application-level presentation on an active published passport. No review or approval subsystem is required, `PassportReview` may remain unused infrastructure, and publication is never described as legal verification, authenticity proof, EU registration or ESPR certification. |
@@ -191,6 +191,26 @@ Cristian explicitly settled published-edit visibility: editing mutable Product d
 Historical versions are back-office-only (previously settled in B6/B8). Anonymous routes expose the current version only; no public historical-version route is planned. Back-office version history remains unimplemented and is not part of Stage 4.3.
 
 **Update 2026-09-25 (Stage 4.4):** the back-office-only history B10 requires is now implemented, and the decision itself is unchanged. `GET /passports` (ADMIN and EDITOR) lists the company's active publications from the current immutable snapshot; Admin-only `GET /passports/:passportId/versions`, `GET /passports/:passportId/versions/:versionNumber` and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId` list, project and serve every retained immutable version. No public historical route was added; the historical projection deliberately omits `publicUrl`, `qrTargetUrl` and `qrDownloadUrl` because they belong to the passport's current version. The role split is enforced by `RolesGuard` after `AccessTokenGuard`; the permission posture is recorded in the Stage 4.4 note in `docs/specs/04-AUTH-AND-SECURITY.md`.
+
+### B11. Passport PDF export decisions (Stage 4.5)
+
+Recorded 2026-09-25 and implemented on `build/passport-pdf`. These are technical choices; the product decisions they depend on (current-version-only, stable UUID/QR, back-office-only history) were already recorded in B6–B10.
+
+| Decision | Value |
+| --- | --- |
+| Route and visibility | `GET /passport/:uuid/pdf` on the anonymous public surface, resolving through the same active-visibility rule as `GET /passport/:uuid`. Malformed, unknown, withdrawn and soft-deleted states return the same safe JSON 404. No `410`, and no historical PDF route. |
+| Source of truth | The current immutable `PassportVersion.publicSnapshot`, projected through the shared `buildPassportContent`/`buildPassportView` layer. No draft, Product child table or editor state contributes content. |
+| Consistency | One `resolveActive` result supplies the view, the stored QR artifact and the retained image bytes, so a concurrent republish cannot mix two versions into one export. |
+| QR | The stored `Passport.qrPngBytes` is embedded unchanged; nothing regenerates a QR for the export. A corrupt or absent artifact makes the export unavailable (controlled 500 `PASSPORT_UNAVAILABLE`) rather than printing a substitute. |
+| Image authorization | The same boundary as the public asset route: `PassportVersionAsset(versionId, assetId)` for the current version, `Asset.state = ACCEPTED`, stored content present. Draft-only, historical-only, foreign and non-accepted assets are never embedded. |
+| Image formats | JPEG and PNG are embedded unchanged when already ≤1600 px on the longest side; WebP is converted to PNG in memory with `sharp`; oversized images are resized down with `withoutEnlargement`. Conversions never mutate stored bytes, create an asset or upscale, and they run sequentially. |
+| Fonts | Full Noto Sans regular/bold from `@expo-google-fonts/noto-sans` 0.4.2 (package MIT, font files OFL-1.1), embedded locally. `@fontsource/noto-sans` 5.3.0 was rejected after fontkit coverage checks: its `latin` subset lacks `Ł`/`ź` and its `latin-ext` subset lacks basic ASCII, and PDFKit has no automatic fallback. No font is fetched at runtime. |
+| Dependencies | `pdfkit` 0.20.2 (MIT) as a runtime dependency; `@types/pdfkit` 0.17.6 (MIT) because PDFKit ships no declarations; `pdfjs-dist` 6.3.289 (Apache-2.0) as a dev-only independent test parser. No browser, Chromium, Puppeteer, HTML-to-PDF or table library was added. |
+| Streaming | The document is piped to the response before its content is drawn, no temporary file is written, and a failure after streaming starts aborts the response instead of finishing a truncated body. |
+| Headers | `application/pdf`, `attachment` with `notarify-passport-{uuid}-v{version}.pdf`, `nosniff`, `no-store` (route-level, so preflight failures carry it too) and `Cross-Origin-Resource-Policy: cross-origin`. No `Content-Length`; the body is streamed. |
+| Caching | None. No Redis and no PDF cache; a republish changes what the same URL exports immediately. Stage 5 owns Redis. |
+| Analytics and audit | None. A PDF download is neither a scan nor a view and writes no `AnalyticsEvent`, `AnalyticsDaily` or `AuditEvent`. |
+| UI surfaces | Download PDF on the public Passport page and on Product Passports for both roles, resolving the API-relative URL like the QR download. Draft Preview and the historical version view deliberately do not advertise a PDF. |
 
 ### C. Unresolved product and policy assumptions
 
