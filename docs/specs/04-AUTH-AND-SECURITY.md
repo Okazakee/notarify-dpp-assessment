@@ -9,10 +9,14 @@ Use `role: ADMIN | EDITOR`, not an `isAdmin` boolean. A boolean could represent 
 | Read private product data / preview | Yes | Yes |
 | Create/edit product, materials, documents and images | Yes | Yes |
 | Publish/republish | Yes | Yes |
+| Manage current published passports (list, open public passport, download QR) | Yes | Yes |
+| Inspect retained passport versions and their historical files | No | Yes |
 | Delete/withdraw | No | Yes |
 | Read aggregate analytics/dashboard | Yes | Yes |
 | Read raw scan metadata / audit entries | No | Yes |
 | Manage users, roles, company settings | No | Yes |
+
+**Update 2026-09-25:** the Stage 4.4 back-office passport surface enforces the split above. `GET /passports` is available to both roles; `GET /passports/:passportId/versions`, `GET /passports/:passportId/versions/:versionNumber` and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId` are Admin-only. The role check is a `RolesGuard` registered after `AccessTokenGuard`, so it evaluates the role that guard re-reads from PostgreSQL on the same request; an access token carries no role claim, and a same-session role change takes effect on the next request. An Editor receives a uniform 403 before any ownership or existence query runs, and foreign, malformed and unknown passport ids all return the same 404 body.
 
 **Update 2026-09-21:** publishing and republishing are **not** Admin-only. The project decided Editors may publish; the earlier draft above that put publish on the Admin-only row was a project proposal, not a Notarify requirement, and has been split into separate rows. The brief still does not define permissions, so the remaining cells stay a project choice rather than a source requirement.
 

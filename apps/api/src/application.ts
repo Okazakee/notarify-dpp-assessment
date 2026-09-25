@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config'
 import { ApiException } from './common/api-exception.js'
 import type { HttpResponse, ParsedRequest } from './common/http-types.js'
 import type { AppEnvironment } from './config/configuration.js'
+import { ListPassportsQueryDto } from './passports/dto/list-passports-query.dto.js'
 import { CreateProductDto } from './products/dto/create-product.dto.js'
 import { ListProductsQueryDto } from './products/dto/list-products-query.dto.js'
 import { PatchProductDto } from './products/dto/patch-product.dto.js'
@@ -61,9 +62,24 @@ export function configureApplication(app: INestApplication): void {
             target instanceof ListProductsQueryDto ||
             target instanceof PublishProductDto,
         )
-        return isProductValidation
-          ? new ApiException(HttpStatus.BAD_REQUEST, 'VALIDATION_ERROR', 'Invalid product request.')
-          : new BadRequestException(errors)
+        const isPassportValidation = errors.some(
+          ({ target }) => target instanceof ListPassportsQueryDto,
+        )
+        if (isProductValidation) {
+          return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_ERROR',
+            'Invalid product request.',
+          )
+        }
+        if (isPassportValidation) {
+          return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_ERROR',
+            'Invalid passport request.',
+          )
+        }
+        return new BadRequestException(errors)
       },
       forbidNonWhitelisted: true,
       transform: true,

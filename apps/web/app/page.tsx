@@ -56,6 +56,12 @@ export default function HomePage() {
                 Manage products
               </Link>
               <Link
+                href="/passports"
+                className="btn btn-secondary focus:outline-2 focus:outline-offset-2 focus:outline-secondary"
+              >
+                Product Passports
+              </Link>
+              <Link
                 href="/dashboard"
                 className="btn btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
               >

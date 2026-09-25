@@ -23,6 +23,8 @@ PDF uses the same view data but an independently designed print layout. Exact HT
 
 The page is responsive and readable without authentication. Core published content should render without client JavaScript; analytics enhancement can be separate. Historical versions are back-office-only by recorded decision (B10); anonymous routes expose only the current version, with no public historical-version route planned.
 
+**Update 2026-09-25 (Stage 4.4):** the back-office history was implemented on the authenticated surface. `GET /passports` lists the company's active publications for both roles; Admin-only `GET /passports/:passportId/versions` lists every retained version newest first with the current marker, `GET /passports/:passportId/versions/:versionNumber` projects that exact version, and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId` serves an asset only when it is retained by that exact version, still accepted and still owned by the caller's company. All three share one validated snapshot interpretation with the public projection; the historical projection deliberately omits `publicUrl`, `qrTargetUrl` and `qrDownloadUrl`, because those belong to the passport's current version and `/passport/:uuid` always serves it. The anonymous public routes are unchanged and no historical asset became public.
+
 ## QR decision
 
 Use the `qrcode` package (`soldair/node-qrcode`) server-side for PNG and optional SVG. It supports image generation and configurable encoding/error correction. We have not established it is the smallest package or audited a selected release. [node-qrcode](https://github.com/soldair/node-qrcode).

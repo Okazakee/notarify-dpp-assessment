@@ -14,6 +14,8 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.3 (public Passport UI, editor Preview and Publish UX) is merged into `main`.** The anonymous public Passport page, the shared presentation component, the seven-tab editor, the draft Preview and the Publish/Republish interaction exist; the remaining Stage 4 milestones do not.
 
+**Stage 4.4 (back-office Passports and complete version history) is implemented and locally validated on `build/passport-history`; it is not merged yet.**
+
 Implemented:
 - **Schema and database** — Prisma 7.10.0 schema validated; initial migration `20260921152150_init` applied to PostgreSQL 18.6, including the hand-written CHECK, partial-unique and GIN constraints and the three composite foreign keys. No migration was needed for Assets: the schema already carried `Asset`, `AssetContent`, `ProductImage`, `ProductDocument` and `Certification.pdfAssetId`.
 - **`apps/api`** — NestJS 12.0.4 family, Prisma through `@prisma/adapter-pg`.
@@ -22,10 +24,11 @@ Implemented:
   - Assets: `POST /assets` (one file per request, `multipart/form-data`) and `GET /assets/:id`. Content is identified from its bytes with `file-type` 22.1.1; images are decoded and re-encoded with `sharp` 0.35.4, which strips metadata and bounds decoded pixels. Bytes live in PostgreSQL `AssetContent.bytea`. Retrieval is private and scoped to the caller's company in the query itself.
   - Publication: `POST /products/:id/publish` creates the stable Passport identity, an immutable `PassportVersion`, its retained `PassportVersionAsset` references and the QR artifact in one transaction. QR rendering uses `qrcode` 1.5.4. Publication writes **no** `AuditEvent`; the audit-log bonus is a separate milestone.
   - Public passport (anonymous, no guard): `GET /passport/:uuid` projects the current immutable published version; `GET /passport/:uuid/assets/:assetId` serves bytes retained by that version; `GET /passport/:uuid/qr.png` serves the stored QR artifact; `GET /q/:uuid` resolves a scan with a 302 to the canonical page. The web app bridges `/q/:uuid` to the API with a single-segment rewrite.
-- **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters and pagination, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
+  - Passports (authenticated back office): `GET /passports` lists the caller company's active publications with bounded pagination for both roles; Admin-only `GET /passports/:passportId/versions` lists every retained version, `GET /passports/:passportId/versions/:versionNumber` projects one immutable version, and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId` serves an asset retained by exactly that version. Role enforcement is a `RolesGuard` after `AccessTokenGuard`; the historical projection shares the validated snapshot interpretation with the public one.
+- **`apps/web`** — Next 16.3.5 App Router: login, workspace, account status, product list with filters, pagination, cover images and publication actions, the back-office `/passports` list with current-publication actions for both roles, the Admin-only `/passports/[passportId]` version history, and a draft editor covering General Information, Images, Documents, Materials, Sustainability and Certifications.
 - **`prisma/seed.ts`** — deterministic, idempotent fictional categories via `pnpm db:seed`.
 
-Not implemented, and not to be assumed: product delete/withdraw, the back-office Passports page and version history, Passport PDF export, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment.
+Not implemented, and not to be assumed: product delete/withdraw, Passport PDF export, public historical-version routes, analytics, Redis, dashboard metrics, Users/Settings flows, tenancy onboarding, garbage collection, antivirus or PDF CDR, object storage, Docker/Compose and deployment. The Product table still owes `Total Views` to Stage 5 and Product delete plus a read-only `View` destination to Stage 6; `Total Views` renders an explicit "Available after analytics" placeholder rather than an invented `0`.
 
 ### Proven asset invariants — do not weaken
 
@@ -61,6 +64,23 @@ Not implemented, and not to be assumed: product delete/withdraw, the back-office
 - Every public response is `no-store`; there is no public caching yet.
 - The web `/q/:uuid` bridge is a single-segment rewrite to the configured API origin, so it cannot proxy arbitrary paths or hosts.
 
+### Proven back-office passport invariants — do not weaken
+
+- The authenticated passport list describes what is **published**: product name, SKU and serial come from the current immutable version snapshot, while `Product.draftRevision` supplies only the operational `currentDraftRevision` and the derived `hasUnpublishedChanges` (`draftRevision > sourceDraftRevision`). An unpublished draft edit must never appear as the passport identity.
+- `hasUnpublishedChanges` is derived, never stored. There is no second writable publication status.
+- Both `ADMIN` and `EDITOR` may list passports, open the current public passport and download the passport-level QR. Historical-version inspection is Admin-only, enforced by `RolesGuard` on every history and historical-asset route, and the check runs before any ownership or existence query. An Editor receives a uniform 403 even for a passport that does not exist.
+- `RolesGuard` evaluates the role `AccessTokenGuard` read from PostgreSQL on the same request. An access token carries no role claim, so a same-session role change takes effect on the next request.
+- Every authenticated passport read is company-scoped through the passport's product ownership. Foreign, malformed and unknown passport ids, version numbers and asset ids all return one identical 404 body, so the surface cannot be probed for existence.
+- Version history reads exact immutable `PassportVersion` rows. The draft is never consulted, and a later draft edit or republish cannot change an older version's projection.
+- The historical projection is built by the same validated snapshot-interpretation layer as the public projection, so the two cannot drift; only the attached URLs differ.
+- The historical projection deliberately omits `publicUrl`, `qrTargetUrl` and `qrDownloadUrl`, because they belong to the passport's current version: `/passport/:uuid` always serves the current version. Back-office chrome states which version the public URL currently shows.
+- A historical asset download requires, in order: an authenticated Admin, a passport owned by the actor's company, a version that belongs to that passport, a `PassportVersionAsset` row for that exact `(versionId, assetId)`, the asset still `ACCEPTED` with stored content, and the asset query still scoped to the actor's company. Any failure is the same 404.
+- `PassportVersionAsset` authorizes retention and download only. Its `role` column is never read to reconstruct cover/gallery/document/PDF semantics or ordering; the snapshot stays the sole authority for those.
+- Historical assets stay private and authenticated on the `same-origin` resource policy. An asset that only an older version retained becomes unreadable on the public route after a republish, and no public historical asset route exists.
+- The web app renders historical and draft assets only through authenticated fetch → `blob:` object URL, revoked on replacement, version switch and unmount. Bounded concurrency (four) keeps one slow file from holding up the cover image.
+- The QR belongs to the Passport, not to a `PassportVersion`: it is generated once, retained across republishes, and never treated as version-specific. A QR download is not a scan.
+- The Product table's publication metadata (`passport` summary and `coverImageAssetId`) is fetched inside the bounded list query, never as one request per row, and a draft cover image is never made public to render it.
+
 ### Proven public UI and editor invariants — do not weaken
 
 - The web `/passport/:uuid` page is anonymous and server-rendered from the API's `PassportView`: the published product name and passport metadata are in the returned HTML, not assembled after hydration. It reads no authenticated product or draft endpoint.
@@ -78,6 +98,8 @@ Verified on 2026-09-23 on `build/public-passport-api`, and re-verified on the me
 Verified on 2026-09-24 on `build/passport-ui`: `pnpm check` passes (89 files linted with no diagnostics, both workspaces typecheck and build, 6 integration suites with 110 of 110 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 24 of 24 against the built stack; `pnpm audit` reports no known vulnerabilities. CI is green on `7550600` (run `36027931967`): 89 files linted, 6 suites / 110 of 110 integration tests against a fresh PostgreSQL 18.6 service, 24 of 24 Playwright tests and no known vulnerabilities.
 
 Stage 4.3 Gate 7 correction locally verified on 2026-09-24: `pnpm check` passes (89 files linted, both workspaces typecheck and build, 6 integration suites / 110 tests); `pnpm test:e2e` passes 25 of 25; `pnpm audit` reports no known vulnerabilities. The accepted branch tip `a728865e` passed CI run `36046019904`; the `--no-ff` merge commit `b925a856` on `main` passed CI run `36049440655`. A subsequent documentation-only `main` commit requires its own final-HEAD CI.
+
+Stage 4.4 locally verified on 2026-09-25 on `build/passport-history`: `pnpm check` passes (104 files linted with no diagnostics, both workspaces typecheck and build, 7 integration suites with 128 of 128 tests against PostgreSQL 18.6); `pnpm test:e2e` passes 33 of 33 against the built stack; `pnpm audit` reports no known vulnerabilities. The Stage 4.4 branch tip `d99b8e4` then passed CI run `36140600586` (lint, typecheck, build, 128 integration tests against a fresh PostgreSQL 18.6 service, 33 Playwright tests and dependency audit). A subsequent documentation-only commit requires its own final-HEAD CI.
 
 ## The specs are authoritative
 
@@ -118,7 +140,7 @@ Settled and recorded, so do not re-open them from a spec: **published-edit visib
 
 ## Module boundaries
 
-- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth`, `src/products`, `src/assets`, `src/publication` and `src/public-passport`; the generated Prisma client lives in `src/generated` and is not committed.
+- `apps/api` (NestJS) — business rules and database access. Owns authoritative validation. Currently `src/config`, `src/prisma`, `src/common`, `src/auth`, `src/products`, `src/assets`, `src/publication`, `src/public-passport` and `src/passports`; the generated Prisma client lives in `src/generated` and is not committed.
 - `apps/web` (Next.js) — UI and rendering. Reflects permissions; never enforces them. Currently the auth flow, the product list, the seven-tab product draft editor with its draft Preview and Publish action, and the anonymous public Passport page.
 - `packages/api-client` — reserved for generated API types; **still empty**.
 - `prisma` — schema, migrations, `seed.ts` (run with `pnpm db:seed`) and `verification/invariant-checks.sql`.
@@ -163,7 +185,7 @@ The API needs `DATABASE_URL`, `JWT_SECRET` and (outside development) `CORS_ORIGI
 
 ## Test evidence
 
-- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts` and `apps/api/test/public-passport.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (6 suites, 110 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts` and `e2e/public-passport.spec.ts` and `e2e/passport-ui.spec.ts` via `pnpm test:e2e` (25 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
+- Test suites today: `apps/api/test/auth.e2e-spec.ts`, `apps/api/test/products.e2e-spec.ts`, `apps/api/test/assets.e2e-spec.ts`, `apps/api/test/product-attachments.e2e-spec.ts`, `apps/api/test/publication.e2e-spec.ts`, `apps/api/test/public-passport.e2e-spec.ts` and `apps/api/test/passports.e2e-spec.ts` via `pnpm --filter @notarify/api test:integration` (7 suites, 128 tests, real PostgreSQL); `e2e/auth.spec.ts`, `e2e/products.spec.ts`, `e2e/assets.spec.ts`, `e2e/public-passport.spec.ts`, `e2e/passport-ui.spec.ts` and `e2e/passports.spec.ts` via `pnpm test:e2e` (33 Playwright tests, built API + web). Never report a test, scan, or audit as passing unless you ran it and can quote the command and its result.
 - Tests must target observable behavior and critical invariants — not trivial getters, and not the implementation the test claims to verify. Never mock away the guard, transaction, or constraint under test.
 - Integration tests use a real isolated PostgreSQL database; SQLite or a mocked Prisma client cannot validate PostgreSQL constraints, transactions, or search behavior.
 - Record failures that remain unresolved instead of omitting them. A green badge is never worth suppressing a finding.

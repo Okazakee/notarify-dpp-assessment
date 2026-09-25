@@ -44,7 +44,7 @@ P0 = required functionality plus the security/testing needed to trust it. P1 = b
 | 6 | Remaining required back-office and lifecycle work: Product DELETE, Users, Settings, and the audit and soft-delete bonuses | Soft delete, audit logs | Every assessment-required route and action exists, is authorized, and is covered |
 | 7 | Docker/Compose completion and testing, migrations, seed, Swagger/OpenAPI, README, architecture document, final E2E, security checks, clean-clone validation and final reconciliation | Unit/integration/E2E evidence consolidated | Reviewer can run it and Cristian can explain critical paths |
 
-Stages 0–3 and Stages 4.1–4.3 are complete on `main`. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
+Stages 0–3 and Stages 4.1–4.4 are complete. Stages 4.1–4.3 are merged into `main`; Stage 4.4 is implemented and locally validated on `build/passport-history`, pending the milestone merge decision. Stage 2 delivered the authentication and authorization foundation; the Users and Settings flows remain required work and are scheduled in Stage 6 rather than assumed complete.
 
 ### Stage 4 milestones
 
@@ -57,7 +57,9 @@ Stages 0–3 and Stages 4.1–4.3 are complete on `main`. Stage 2 delivered the 
 | 4.5 | Passport PDF export: the current published passport, QR, required product and passport information, relevant content, safe server-side generation and download UX | A downloaded PDF matches the published version and is produced without a browser process |
 | 4.6 | Stage 4 acceptance and regression: first publish, draft edit after publication, republish, stable UUID/QR, old-version retention, public visibility, public file authorization, preview parity, historical version behaviour, PDF, responsive anonymous access and the required back-office actions | The Stage 4 acceptance matrix passes as one suite |
 
-Historical versions are back-office only. No public historical-version route is planned.
+Milestones 4.1–4.4 are implemented. Stage 4.5 (PDF export) and 4.6 (the Stage 4 acceptance suite) remain; the Product table still owes Total Views to Stage 5 and Product delete plus a read-only View destination to Stage 6, which is recorded rather than faked.
+
+Historical versions are back-office only. No public historical-version route is planned; Stage 4.4 implemented `/passports` for both roles and the Admin-only `/passports/[passportId]` history view.
 
 ## Delivery sequence
 

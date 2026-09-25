@@ -37,6 +37,8 @@ Users and Settings are under-specified in the brief. The minimum useful flows de
 
 The product list includes image, name, SKU, status, QR, total views and actions: view, edit, delete, open passport, download QR. Draft rows show unavailable public actions clearly instead of broken links. Destructive actions require a clear confirmation dialog.
 
+**Update 2026-09-25:** Stage 4.4 implemented `/passports` and the publication part of that table. Product Passports lists the current published identity per row for both roles, marks a row with unpublished changes, and offers Open Passport and Download QR; `/passports/[passportId]` is the Admin-only retained-version view, and an Editor who navigates there is shown an explicit unavailable state while the API refuses the request with 403. On the Products table the cover image, QR column, Total Views column and Open Passport/Download QR actions now exist. Total Views renders an unavailable placeholder with an accessible "Available after analytics" explanation until Stage 5 supplies the metric — it must never display an invented `0`. Product delete and a read-only View destination remain Stage 6 gaps, and no fake Delete or PDF control was added.
+
 ## Seven editor tabs
 
 General Information; Materials; Sustainability; Certifications; Documents; Images; Preview. Each supports loading, empty and validation states. Show which tabs contain errors and focus the first invalid field. Explain publish failures in field-level terms.

@@ -3,10 +3,18 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { apiUrl } from '../api-origin'
 import { useAuth } from '../auth-context'
 import { LogoutButton } from '../logout-button'
+import { useAssetObjectUrls } from '../passport/use-asset-object-urls'
 import { describeApiError, ProductApiError, readApiResponse } from './api'
-import type { Category, ProductDetail, ProductListItem, ProductListResponse } from './types'
+import type {
+  Category,
+  ProductDetail,
+  ProductListItem,
+  ProductListResponse,
+  ProductPassportSummary,
+} from './types'
 
 const DEFAULT_PAGE_SIZE = 10
 const PAGE_SIZE_OPTIONS = [DEFAULT_PAGE_SIZE, 25, 50]
@@ -39,6 +47,22 @@ function isCategory(value: unknown): value is Category {
   )
 }
 
+function isProductPassportSummary(value: unknown): value is ProductPassportSummary {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const candidate = value as Partial<ProductPassportSummary>
+  return (
+    typeof candidate.publicUuid === 'string' &&
+    typeof candidate.publicUrl === 'string' &&
+    typeof candidate.qrDownloadUrl === 'string' &&
+    typeof candidate.currentVersionNumber === 'number' &&
+    typeof candidate.sourceDraftRevision === 'number' &&
+    typeof candidate.hasUnpublishedChanges === 'boolean' &&
+    typeof candidate.currentPublishedAt === 'string'
+  )
+}
+
 function isProductListItem(value: unknown): value is ProductListItem {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -54,7 +78,9 @@ function isProductListItem(value: unknown): value is ProductListItem {
     (candidate.status === 'DRAFT' || candidate.status === 'PUBLISHED') &&
     typeof candidate.draftRevision === 'number' &&
     typeof candidate.createdAt === 'string' &&
-    typeof candidate.updatedAt === 'string'
+    typeof candidate.updatedAt === 'string' &&
+    (candidate.coverImageAssetId === null || typeof candidate.coverImageAssetId === 'string') &&
+    (candidate.passport === null || isProductPassportSummary(candidate.passport))
   )
 }
 
@@ -115,6 +141,19 @@ export default function ProductsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
+
+  // Only the ids are fetched, and only for the rows on this bounded page, so a page of
+  // products costs one authenticated request per cover instead of one per row per render.
+  const coverAssetIds = useMemo(
+    () =>
+      products === null
+        ? []
+        : products.items.flatMap((product) =>
+            product.coverImageAssetId === null ? [] : [product.coverImageAssetId],
+          ),
+    [products],
+  )
+  const coverUrls = useAssetObjectUrls(request, coverAssetIds)
 
   useEffect(() => {
     if (status === 'signed-out') {
@@ -265,6 +304,12 @@ export default function ProductsPage() {
             <p className="mt-1 text-sm text-base-content/70">Create and maintain product drafts.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/passports"
+              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+            >
+              Product Passports
+            </Link>
             <Link
               href="/"
               className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
@@ -431,18 +476,22 @@ export default function ProductsPage() {
                 <caption className="sr-only">Products in this company</caption>
                 <thead>
                   <tr>
+                    <th scope="col">Cover</th>
                     <th scope="col">Name</th>
                     <th scope="col">SKU</th>
                     <th scope="col">Serial</th>
                     <th scope="col">Category</th>
                     <th scope="col">Status</th>
+                    <th scope="col">QR</th>
+                    <th scope="col">Total views</th>
                     <th scope="col">Updated</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center">
+                      <td colSpan={10} className="py-12 text-center">
                         <span
                           className="loading loading-spinner loading-md text-primary"
                           role="status"
@@ -452,7 +501,7 @@ export default function ProductsPage() {
                     </tr>
                   ) : products === null || products.items.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-base-content/70">
+                      <td colSpan={10} className="py-12 text-center text-base-content/70">
                         No products match these filters.
                       </td>
                     </tr>
@@ -464,12 +513,39 @@ export default function ProductsPage() {
                         className="cursor-pointer focus:outline-2 focus:outline-offset-[-2px] focus:outline-primary"
                         onClick={() => router.push(`/products/${product.id}`)}
                         onKeyDown={(event) => {
+                          // Action controls live inside this row. Only a key pressed on the
+                          // row itself navigates, so tabbing to an action never opens the
+                          // editor by accident.
+                          if (event.target !== event.currentTarget) {
+                            return
+                          }
                           if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault()
                             router.push(`/products/${product.id}`)
                           }
                         }}
                       >
+                        <td>
+                          {product.coverImageAssetId !== null &&
+                          coverUrls[product.coverImageAssetId] !== undefined ? (
+                            // biome-ignore lint/performance/noImgElement: draft cover bytes are private blob: object URLs, which the Next image optimiser cannot fetch or optimise.
+                            <img
+                              src={coverUrls[product.coverImageAssetId]}
+                              alt=""
+                              width={40}
+                              height={40}
+                              className="h-10 w-10 rounded object-cover"
+                              data-testid="product-cover"
+                            />
+                          ) : (
+                            <span
+                              className="flex h-10 w-10 items-center justify-center rounded bg-base-200 text-base-content/40"
+                              aria-hidden="true"
+                            >
+                              —
+                            </span>
+                          )}
+                        </td>
                         <th scope="row" className="font-medium">
                           {displayValue(product.name)}
                         </th>
@@ -477,13 +553,88 @@ export default function ProductsPage() {
                         <td>{displayValue(product.serialNumber)}</td>
                         <td>{displayValue(product.categoryName)}</td>
                         <td>
-                          <span
-                            className={`badge ${product.status === 'PUBLISHED' ? 'badge-success' : 'badge-warning'}`}
-                          >
-                            {product.status === 'PUBLISHED' ? 'Published' : 'Draft'}
+                          <div className="flex flex-col items-start gap-1">
+                            <span
+                              className={`badge ${product.status === 'PUBLISHED' ? 'badge-success' : 'badge-warning'}`}
+                            >
+                              {product.status === 'PUBLISHED' ? 'Published' : 'Draft'}
+                            </span>
+                            {product.passport?.hasUnpublishedChanges === true ? (
+                              <span
+                                className="badge badge-warning badge-sm"
+                                data-testid="product-unpublished-changes"
+                              >
+                                Unpublished changes
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td>
+                          {product.passport === null ? (
+                            <span className="text-base-content/40">
+                              <span aria-hidden="true">—</span>
+                              <span className="sr-only">No QR code until published</span>
+                            </span>
+                          ) : (
+                            <a
+                              className="link link-primary text-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                              href={apiUrl(product.passport.qrDownloadUrl)}
+                              onClick={(event) => event.stopPropagation()}
+                              data-testid="product-qr-download"
+                            >
+                              QR
+                            </a>
+                          )}
+                        </td>
+                        <td>
+                          {/* Analytics is Stage 5; a placeholder is honest, an invented 0 is not. */}
+                          <span className="text-base-content/40" data-testid="product-total-views">
+                            <span aria-hidden="true">—</span>
+                            <span className="sr-only">Available after analytics</span>
                           </span>
                         </td>
                         <td>{displayDate(product.updatedAt)}</td>
+                        <td>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              className="btn btn-xs btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                              href={`/products/${product.id}`}
+                              onClick={(event) => event.stopPropagation()}
+                              data-testid="product-edit"
+                            >
+                              Edit
+                            </Link>
+                            {product.passport === null ? (
+                              <span
+                                className="text-xs text-base-content/50"
+                                data-testid="product-not-published"
+                              >
+                                Publish to enable passport actions
+                              </span>
+                            ) : (
+                              <>
+                                <a
+                                  className="btn btn-xs btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                                  href={product.passport.publicUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  data-testid="product-open-passport"
+                                >
+                                  Open Passport
+                                </a>
+                                <a
+                                  className="btn btn-xs btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                                  href={apiUrl(product.passport.qrDownloadUrl)}
+                                  onClick={(event) => event.stopPropagation()}
+                                  data-testid="product-download-qr"
+                                >
+                                  Download QR
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
