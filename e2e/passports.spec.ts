@@ -49,7 +49,6 @@ type Fixture = {
 
 let fixture: Fixture
 let editorToken: string
-let adminToken: string
 let draftOnlyName: string
 
 async function tokenFor(request: APIRequestContext, email: string): Promise<string> {
@@ -164,7 +163,6 @@ test.describe.configure({ mode: 'serial' })
 
 test.beforeAll(async ({ request }) => {
   editorToken = await tokenFor(request, E2E_EMAIL)
-  adminToken = await tokenFor(request, E2E_ADMIN_EMAIL)
 
   const coverA = await upload(request, editorToken, 'cover-a.png', 'image/png', PNG_1X1)
   const coverB = await upload(request, editorToken, 'cover-b.png', 'image/png', PNG_1X1)
