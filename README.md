@@ -1,101 +1,296 @@
-# Notarify DPP Assessment
+# Notarify — Digital Product Passport (assessment)
 
-Technical assessment submission for **Notarify**: a Digital Product Passport (DPP) application.
+A Digital Product Passport application: operators maintain product data, publish an immutable
+Passport version, and a customer scans a QR code to read it. Built for the Notarify
+full-stack assessment.
 
-> **Status: Stages 0–6 are complete and merged into `main`.** All application functionality required by the assessment is implemented, including all nine bonuses. The validated schema and initial PostgreSQL migration, the hardened authentication flow, Product draft CRUD with optimistic concurrency, and the Assets slice — validated upload with private retrieval, plus image, document and certification-PDF attachments — are implemented, verified and merged into `main`. So is the publication core: publish prerequisites, a stable Passport identity, immutable versions, retained asset references, QR generation, republish semantics and publication idempotency. So is the anonymous public surface: the public projection, published-asset downloads, the QR download and the QR redirect. So is the reviewer-visible public Passport experience: a server-rendered anonymous `/passport/:uuid` page, one shared Passport presentation component, a seven-tab editor whose Preview uses current draft content in the eventual Published / prototype Verified presentation under an explicit unpublished editor banner, and an explicit Publish/Republish interaction. So is the back-office Passports and version-history slice: a company passport list built from current immutable snapshots, current-publication actions for both roles, and Admin-only inspection of every retained immutable version and its retained files. So is the Passport PDF export: a server-side A4 document of the current immutable published version that reuses the stored QR artifact and the retained images, with no historical PDF route. Passport PDF export is implemented for the current published version; analytics is implemented as company-scoped dashboard and reporting endpoints fed by server-authoritative QR scans and page views, with a measured Total Views column and a disposable Redis cache of immutable published content. Public historical-version routes, a public `410 Gone` tombstone, restore/undelete and deployment are not implemented. Stage 6 completed the final functional gaps: Admin-only Product deletion (a soft delete that withdraws the published Passport and keeps all history), the audit-log bonus, Users administration, company Settings, the read-only Product view and the six-item Admin navigation. Nothing here is a claim of working software beyond what the sections below describe.
+**This is a prototype.** The data is fictional, the analytics country is mocked, and nothing
+here is a regulatory registration or an ESPR compliance claim.
 
-## The assessment
+---
 
-Build a DPP application where an operator maintains product records and publishes a public passport for each one:
+## Quick start (Docker Compose)
 
-- Email/password authentication with JWT sessions and `ADMIN` / `EDITOR` roles.
-- Product CRUD covering the eight basic fields, materials, sustainability metrics, certifications, manuals, warranties, datasheets, cover image, and gallery.
-- A stable passport UUID, a generated QR image, and a public passport URL.
-- A public passport page: header, product information, materials, certifications, sustainability, documents, and passport metadata.
-- Scan and view analytics (timestamp, IP, browser, OS, language, country) with dashboard counters and time-based reports.
-- Delivery via Docker Compose, runnable locally and on a VPS behind a TLS reverse proxy.
+Everything runs from the repository alone — no pre-existing database, Node installation or
+build output.
 
-## Documentation
+```bash
+cp .env.example .env
+docker compose up --build -d
+docker compose run --rm seed
+```
 
-The specification set is the entry point for all work. **Start with the roadmap:**
+Then open:
 
-| Document | Owns |
+| | |
 | --- | --- |
-| [00-ROADMAP.md](docs/specs/00-ROADMAP.md) | Stages, Stage 4 milestones, required coverage, delivery sequence |
-| [01-ESPR-SCOPE.md](docs/specs/01-ESPR-SCOPE.md) | Regulatory boundary, mock-data scope, claims we do not make |
-| [02-ARCHITECTURE.md](docs/specs/02-ARCHITECTURE.md) | Modules, contract ownership, API outline, dependency candidates |
-| [03-DATA-AND-LIFECYCLE.md](docs/specs/03-DATA-AND-LIFECYCLE.md) | Schema blueprint, constraints, publication and deletion |
-| [04-AUTH-AND-SECURITY.md](docs/specs/04-AUTH-AND-SECURITY.md) | Sessions, permissions, trust boundaries, validation |
-| [05-PRODUCTS-AND-FILES.md](docs/specs/05-PRODUCTS-AND-FILES.md) | CRUD, nested data, uploads, search, filters |
-| [06-PASSPORTS-QR-PDF.md](docs/specs/06-PASSPORTS-QR-PDF.md) | Public projection, preview, QR, versioning, PDF |
-| [07-ANALYTICS-AND-CACHE.md](docs/specs/07-ANALYTICS-AND-CACHE.md) | Scan/view definitions, dashboards, Redis |
-| [08-FRONTEND.md](docs/specs/08-FRONTEND.md) | Routes, forms, state, accessibility |
-| [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) | Tests, security review, Docker, VPS, CI |
-| [10-AI-AND-DX.md](docs/specs/10-AI-AND-DX.md) | AI workflow, tooling, evidence and review |
+| Web application | <http://localhost:3001> |
+| API | <http://localhost:3000> |
+| API documentation (Swagger UI) | <http://localhost:3000/docs> |
 
-**The specs are planning drafts, not implementation reports.** Items marked *proposed* are working defaults awaiting a recorded decision — see [Decisions before implementation](docs/specs/00-ROADMAP.md#decisions-before-implementation).
+`docker compose up` applies the tracked migrations through a one-shot service the API waits
+for, so the application never starts before the schema exists. The seed step is explicit and
+never runs on its own, so it cannot overwrite your data by surprise.
 
-The Stage 4 acceptance evidence map — where every Stage 4 invariant is proven and which manual items remain outstanding — lives in [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md).
+## Demo credentials
 
-## Repository layout
+Seeded by `docker compose run --rm seed`. **Local/demo values only — never production
+credentials.** Change them in `.env` (`DEMO_ADMIN_PASSWORD`, `DEMO_EDITOR_PASSWORD`) before
+seeding something real.
 
-```text
-apps/api               NestJS API                     (implemented)
-apps/web               Next.js frontend               (implemented)
-packages/api-client    Generated API types and client (still empty)
-prisma                 Schema, migrations, seed       (implemented)
-fixtures               Mocked JSON seed data          (still empty)
-docs/specs             Planning specifications
-```
+| Role | Email | Password |
+| --- | --- | --- |
+| Administrator | `admin@demo.test` | `AdminDemoPassw0rd!` |
+| Editor | `editor@demo.test` | `EditorDemoPassw0rd!` |
 
-`apps/api`, `apps/web` and `prisma` are implemented. `packages/api-client` and `fixtures` remain empty: the API types are currently hand-written in `apps/web`, and deterministic test fixtures are generated in-process by the test suites.
+The seed also creates three product categories, a second product for list and filter
+demonstration, and one **complete draft** ("Demo Reusable Bottle") that already satisfies
+every publication prerequisite: materials with a 100% split, all five sustainability values,
+a certification with its PDF, a product document, a cover image and a gallery image.
 
-## Getting started
+## Reviewer walkthrough
 
-The database toolchain and both applications run locally. The commands below are the supported ones; [AGENTS.md](AGENTS.md) holds the canonical table and the reasons each command exists.
+1. Sign in as the Administrator.
+2. **Dashboard** — the four counters (products, published Passports, QR codes, Passport views).
+3. **Products** — search and filter, then note the **View** action (the private, read-only
+   record) beside **Edit**.
+4. Open "Demo Reusable Bottle" → step through the seven editor tabs → **Preview** (the current
+   draft, unsaved changes included, clearly marked unpublished).
+5. **Publish**. The Passport gets a stable UUID and a QR artifact.
+6. **Product Passports** → **Open Passport** (anonymous page) → **Download QR** →
+   **Download PDF**.
+7. Scan the QR target with a phone, or follow `/q/<uuid>`: it resolves through the API and
+   redirects to the public page — and records one QR scan.
+8. **Analytics** — scans today, seven UTC buckets, most viewed, latest scans. Revisit the
+   public page and the view counter moves too.
+9. **Product Passports** → **Version history** (Admin only): every retained immutable version.
+10. **Users** — create a user, change a role, disable and reactivate.
+11. **Settings** — company display name, logo, and Recent Audit Activity.
+12. **Delete** a product (Admin only): it disappears from the back office, its public
+    Passport is withdrawn, and its versions, files, analytics and audit rows are retained.
 
-```bash
-# Requires Node 24.21.0 and pnpm 12.5.1
-pnpm install
-cp .env.example .env          # then set DATABASE_URL to a PostgreSQL 18 instance
-pnpm db:validate              # prisma validate
-pnpm db:generate              # generate the Prisma client
-pnpm db:migrate               # apply migrations
-```
-
-`prisma/verification/invariant-checks.sql` re-checks the schema-level invariants against an already-migrated database; it rolls back everything it inserts.
-
-The authentication slice, product **draft** CRUD, the Assets slice, the Stage 4.1 publication core, the Stage 4.2 anonymous public surface, the Stage 4.4 back-office passport slice and the Stage 4.5 PDF export exist. The API serves `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `GET /categories`, `POST`/`GET` on `/assets` (validated upload and private retrieval), `GET`/`POST`/`PATCH` on `/products` (draft editing with optimistic revision checks, including image, document and certification-PDF attachments), `POST /products/:id/publish` (immutable version creation with a stable passport UUID and QR artifact), the anonymous `GET /passport/:uuid`, `GET /passport/:uuid/assets/:assetId`, `GET /passport/:uuid/qr.png`, `GET /passport/:uuid/pdf` and `GET /q/:uuid`, and the authenticated `GET /passports`, Admin-only `GET /passports/:passportId/versions`, `GET /passports/:passportId/versions/:versionNumber` and `GET /passports/:passportId/versions/:versionNumber/assets/:assetId`. The frontend provides login, the workspace, the product list with filters, pagination, cover images and publication actions, a seven-tab draft editor (General Information, Materials, Sustainability, Certifications, Documents, Images and Preview) with an explicit Publish/Republish action, the anonymous `/passport/:uuid` page with its PDF download, a `/q/:uuid` bridge to the API resolver, and the back-office `/passports` list with Download PDF plus the Admin-only `/passports/[passportId]` version history.
-
-Not implemented: public historical-version routes, a public `410 Gone` tombstone, restore/undelete, password reset or invitation email, the unused `PassportReview` workflow, and deployment. Product deletion is an Admin-only soft delete that withdraws the published Passport and keeps all history; there is no restore. Analytics is implemented with a deliberate gap: there is **no** automatic raw-retention or purge job in this assessment, so accepted events stay in `AnalyticsEvent` and production retention is future hardening. The Product table's `Total Views` is now a measured value — an unpublished product and a published product nobody has viewed both report a real `0`, and a QR scan never contributes to it. The Product table now offers View, Edit, Delete (Admin), Open Passport and Download QR. All nine assessment bonuses remain in scope; see the [roadmap](docs/specs/00-ROADMAP.md) for where each one lands.
-
-```bash
-pnpm lint && pnpm typecheck && pnpm build     # static checks
-pnpm db:seed                                  # idempotent fictional categories
-pnpm --filter @notarify/api test:integration  # API tests, real PostgreSQL
-pnpm test:e2e                                 # Playwright auth + product regression
-```
-
-Delivery commands such as the Compose profile and the Swagger/OpenAPI export land with Stage 7 and will be documented here and in [09-TESTING-AND-DELIVERY.md](docs/specs/09-TESTING-AND-DELIVERY.md) once they exist and have been executed. [AGENTS.md](AGENTS.md) lists what is supported today and what must not be documented as working before it does.
-
-## Local quality gate and CI
+The walkthrough mutates the demo data. The smoke suite does too. Reset to a clean state with:
 
 ```bash
-pnpm hooks:install   # once per clone: points git at .githooks
-pnpm check           # db:validate, lint, typecheck, build, API integration tests
-pnpm test:e2e        # Playwright, run by CI and at milestone gates
+docker compose down -v      # -v destroys the local demo database
+docker compose up --build -d
+docker compose run --rm seed
 ```
 
-`pnpm check` is the normal local contract and is what `pre-commit`/`pre-push` invoke (`pre-commit` runs `pnpm lint` only). Hooks are convenience: they can be bypassed with `--no-verify`, so they are not evidence. `.github/workflows/ci.yml` is the authoritative clean-environment check — one workflow, real PostgreSQL 18.6, migrations applied to a fresh database, then `pnpm check`, `pnpm test:e2e` and `pnpm audit`. Pull requests are optional; they are not required by the project workflow.
+## What is where
 
-## Data and claims
+```
+apps/api         NestJS API: business rules, validation, database access
+apps/web         Next.js App Router UI (server components for the public Passport)
+packages/        reserved for generated API types
+prisma/          schema, migrations, seed
+fixtures/demo/   tiny fictional sample files used by the seed
+e2e/             Playwright suites (native stack + packaged smoke)
+docs/            specs (engineering reference), OpenAPI export, acceptance map
+```
 
-All product, sustainability, certification, and analytics data in this project is **fictional assessment data**. A verification badge is a prototype/application-level indicator on an active published passport; it is not independent certification, not proof of authenticity, and not the output of a review or approval process. This is an assessment prototype informed by the EU ESPR framework; it makes **no claim of ESPR compliance, EU certification, or official DPP registration**. See [01-ESPR-SCOPE.md](docs/specs/01-ESPR-SCOPE.md) for the full boundary.
+Architecture, database design, security approach, scalability and future work are covered in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The detailed planning specs live in
+[docs/specs/](docs/specs/) and remain the engineering reference.
+
+## Roles
+
+| Capability | Editor | Administrator |
+| --- | :---: | :---: |
+| Read and edit products, publish and republish | yes | yes |
+| Dashboard and aggregate analytics | yes | yes |
+| Current published Passport: open, QR, PDF | yes | yes |
+| View read-only product record | yes | yes |
+| Historical Passport versions | — | yes |
+| Delete / withdraw a product | — | yes |
+| Users, company settings, audit log | — | yes |
+
+Hiding a control is presentation only; the API refuses unauthorized requests regardless of
+what the browser shows. The access token carries no role claim — the role is re-read from the
+database on every protected request, so a role change takes effect on the next request.
+
+## Main functionality
+
+* **Product drafts** — general information, materials, sustainability, certifications
+  (with PDF), documents, images, with optimistic concurrency (`draftRevision`).
+* **Assets** — uploads validated from their bytes (`file-type` magic numbers, plus a PDF
+  structure check), images decoded and re-encoded with `sharp` (metadata stripped, dimensions
+  bounded), bytes stored in PostgreSQL and served privately per company.
+* **Publication** — a transactional publish that creates a stable Passport identity, an
+  immutable version snapshot, its retained asset references and the QR artifact, revalidating
+  every referenced asset.
+* **Public Passport** — server-rendered, anonymous, built only from the immutable snapshot,
+  with published asset downloads, the stored QR artifact and a PDF export.
+* **Lifecycle** — soft delete that withdraws the published Passport in one transaction while
+  keeping every version, file, analytics row and audit row.
+* **Analytics** — QR scans and page views recorded server-side, dashboard and reporting,
+  per-product view counts.
+* **Administration** — users with last-active-admin protection, company settings, append-only
+  audit log.
+
+## Bonus coverage
+
+All nine bonuses are implemented.
+
+| Bonus | Where |
+| --- | --- |
+| Full-text product search | `GET /products?q=` — PostgreSQL full-text search |
+| Passport versioning | immutable `PassportVersion` rows, Admin history view |
+| Soft delete | `DELETE /products/:id` — Admin-only, withdraws, retains history |
+| Audit logs | transactional `AuditEvent` + Admin `GET /audit-logs` and Settings activity |
+| Redis caching | immutable published content only, PostgreSQL always authoritative |
+| Pagination + advanced filtering | products, Passports, analytics, audit, users |
+| Passport PDF export | `GET /passport/:uuid/pdf`, server-rendered, stored QR reused |
+| Drag-and-drop uploads | the editor's image and document pickers |
+| Automated tests | integration suites against real PostgreSQL/Redis + Playwright |
+
+## Native development (without Docker)
+
+Requires Node 24.21.0 and pnpm 12.5.1, plus a reachable PostgreSQL 18 and (optionally) Redis.
+
+```bash
+pnpm install --frozen-lockfile
+cp .env.example .env          # point DATABASE_URL at your own PostgreSQL
+pnpm db:validate && pnpm db:generate
+pnpm db:migrate               # prisma migrate dev
+pnpm db:seed
+pnpm --filter @notarify/api build && node apps/api/dist/src/main.js
+pnpm --filter @notarify/web dev
+```
+
+There is no API `dev` script: build it and run the compiled entry point, which is the same
+artifact the container runs.
+
+## Tests
+
+```bash
+pnpm check      # schema validation, lint, typecheck, build, integration suites
+pnpm test:e2e   # Playwright against the built API and web app
+pnpm test:smoke # Playwright against the running Compose stack
+pnpm audit      # dependency audit
+```
+
+The integration suites (`apps/api/test/*.e2e-spec.ts`) run against a real PostgreSQL and
+exercise real transactions, constraints and the Redis cache. The browser suites cover the
+reviewer journeys, and `docs/STAGE4-ACCEPTANCE.md` maps Stage 4's acceptance evidence.
+
+| Suite | Count |
+| --- | --- |
+| Integration (API) | 15 suites / 213 tests |
+| Browser (native stack) | 71 tests |
+| Browser (packaged stack) | 1 end-to-end journey |
+
+## API documentation
+
+`GET /docs` serves Swagger UI and `GET /docs-json` the raw document. The committed artifact is
+[docs/openapi.json](docs/openapi.json), generated — never hand-edited — with:
+
+```bash
+pnpm openapi:generate   # rewrite docs/openapi.json
+pnpm openapi:check      # fail when the artifact is stale
+```
+
+Interactive documentation is enabled outside production and **disabled in production unless
+`SWAGGER_ENABLED=true`**, so an API console is never exposed by accident.
+
+## Database, migrations and seed
+
+The schema is in `prisma/schema.prisma`; the initial migration
+`prisma/migrations/20260921152150_init` is the only one, and it is applied with
+`prisma migrate deploy` (never `db push`, never `migrate dev` in a container).
+
+`pnpm db:seed` is idempotent: deterministic ids mean a second run changes nothing and creates
+no duplicates. It restores the seeded fixtures' own content to a deterministic state and
+leaves every other product, user and asset untouched.
+
+## Backups
+
+Asset bytes live in PostgreSQL, so a database dump is the complete durable backup — there is
+no separate upload volume to forget.
+
+```bash
+docker compose exec -T postgres pg_dump -U notarify -d notarify > notarify-backup.sql
+# restore into a clean database
+docker compose exec -T postgres psql -U notarify -d postgres -c 'CREATE DATABASE notarify_restore;'
+docker compose exec -T postgres psql -U notarify -d notarify_restore < notarify-backup.sql
+```
+
+Redis holds only disposable cache entries and needs no backup.
+
+## Security notes
+
+* Access tokens live in memory only; the refresh token is an opaque rotating cookie scoped to
+  `/auth` with `HttpOnly`, `Secure` and `SameSite=Lax`.
+* Every cookie-authenticated mutation validates the request `Origin` against the configured
+  app origin. A missing `Origin` is allowed deliberately for non-browser clients. CORS is not
+  described as CSRF protection.
+* Authorization is server-authoritative: session, user, role and company are re-read from
+  PostgreSQL on each protected request, and every query is company-scoped in the query itself,
+  so a foreign id is indistinguishable from a missing one.
+* Uploaded content is never trusted: the type comes from the bytes, the served `Content-Type`
+  matches what is stored, images are re-encoded, and stored bytes are re-checked against the
+  limit.
+* Deleting a product is a soft delete; every anonymous surface for a withdrawn Passport
+  returns one identical 404, so the surface cannot be probed.
+* Audit metadata is a closed, bounded vocabulary and never contains passwords, hashes, tokens,
+  cookies, request bodies or file bytes. It is append-only through the application, which is
+  **not** cryptographic tamper-proofing.
+* Redis holds only the interpreted content of an already-selected immutable version, and every
+  public read resolves visibility and the current version from PostgreSQL first.
+* No secret is baked into an image: configuration is supplied at runtime, and the runtime
+  images contain no package manager.
+* `pnpm audit`, Gitleaks, Trivy and a ZAP baseline are run against this repository; the
+  findings and their triage are recorded in [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md).
+
+## Deployment notes
+
+The Compose stack is a reviewer topology. A real deployment needs an exact production
+configuration rather than defaults: set `NODE_ENV=production`, real `CORS_ORIGIN` and
+`PUBLIC_APP_ORIGIN`, a strong `JWT_SECRET`, a managed database and (optionally) Redis, and
+leave `SWAGGER_ENABLED` false unless the documentation is protected.
+
+Because the refresh cookie is scoped to `/auth`, serving the API from its own origin or
+subdomain is simpler than proxying it under `/api` on the web origin:
+
+```
+https://dpp.example.com      → web      NEXT_PUBLIC_API_URL=https://api.dpp.example.com
+https://api.dpp.example.com  → API      CORS_ORIGIN=https://dpp.example.com
+                                        PUBLIC_APP_ORIGIN=https://dpp.example.com
+inside the network:                     INTERNAL_API_URL=http://api:3000
+```
+
+**This topology has not been deployed or tested on a real host.** It is the documented shape,
+not a verified deployment.
+
+## Known limitations
+
+Deliberately out of scope, or genuinely unfinished:
+
+* **No automatic analytics retention.** Accepted events stay in `AnalyticsEvent`; production
+  retention or purge is future hardening.
+* **No antivirus or PDF CDR** on uploads; an object store and CDN are future work if scale
+  requires them.
+* **The analytics country is mocked** (`countrySource = MOCK`) and never inferred from IP,
+  language or locale. The stored IP is not anonymized and has no automatic retention.
+* **No public historical Passport or PDF route, no `410 Gone` tombstone, no restore.** A
+  withdrawn Passport is reachable only through the authenticated Admin history.
+* **No password reset, invitation email or social login.** An administrator sets an initial
+  password; the bundled `PassportReview` model is unused infrastructure.
+* The web origin does not set CSP, COEP or SRI (reasons recorded in `apps/web/next.config.ts`);
+  a production reverse proxy would typically add them.
+* Reverse-proxy trust is not configured: without it the recorded analytics address is the
+  proxy's. Trusted-proxy configuration belongs with the real deployment.
+* Human review status: Cristian's manual UI walkthrough, a physical phone QR scan, a printed
+  PDF review and human source-code review are **outstanding** — see below.
 
 ## AI assistance
 
-The planning specifications are AI-assisted drafts, and AI assistance is used during implementation. Contributions, their review status, and the checks actually run are recorded in [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md). That log distinguishes completed work from proposals and never reports unrun checks as passed.
+This repository was built with **Pi** (`opencode-go/deepseek-v4.1-flash`) as the primary
+implementation agent, with read-only review subagents for verification, and an external
+ChatGPT orchestration layer used for scope and dependency research. AI review is not human
+review. The per-round record — scope, decisions, findings, validation evidence and what was
+left unvalidated — is [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md).
 
-## License
-
-No license is granted. This is an assessment submission published for review; it is not intended for reuse or redistribution.
+**Not yet performed by a human:** the manual UI walkthrough, a physical handset scan of a
+printed QR code, a printed/on-screen visual review of the PDF, human source-code review, and
+deployment to a real host.
