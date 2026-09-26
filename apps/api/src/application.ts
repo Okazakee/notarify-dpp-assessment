@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { AnalyticsQueryDto } from './analytics/dto/analytics-query.dto.js'
 import { ViewEventDto } from './analytics/dto/view-event.dto.js'
+import { ListAuditLogsQueryDto } from './audit/dto/list-audit-logs-query.dto.js'
 import { ApiException } from './common/api-exception.js'
 import type { HttpResponse, ParsedRequest } from './common/http-types.js'
 import type { AppEnvironment } from './config/configuration.js'
@@ -17,6 +18,10 @@ import { CreateProductDto } from './products/dto/create-product.dto.js'
 import { ListProductsQueryDto } from './products/dto/list-products-query.dto.js'
 import { PatchProductDto } from './products/dto/patch-product.dto.js'
 import { PublishProductDto } from './publication/dto/publish-product.dto.js'
+import { UpdateSettingsDto } from './settings/dto/update-settings.dto.js'
+import { CreateUserDto } from './users/dto/create-user.dto.js'
+import { ListUsersQueryDto } from './users/dto/list-users-query.dto.js'
+import { UpdateUserDto } from './users/dto/update-user.dto.js'
 
 const require = createRequire(import.meta.url)
 const cookieParser = require('cookie-parser') as () => (
@@ -70,6 +75,18 @@ export function configureApplication(app: INestApplication): void {
         const isAnalyticsValidation = errors.some(
           ({ target }) => target instanceof AnalyticsQueryDto || target instanceof ViewEventDto,
         )
+        const isAuditValidation = errors.some(
+          ({ target }) => target instanceof ListAuditLogsQueryDto,
+        )
+        const isUserValidation = errors.some(
+          ({ target }) =>
+            target instanceof CreateUserDto ||
+            target instanceof UpdateUserDto ||
+            target instanceof ListUsersQueryDto,
+        )
+        const isSettingsValidation = errors.some(
+          ({ target }) => target instanceof UpdateSettingsDto,
+        )
         if (isProductValidation) {
           return new ApiException(
             HttpStatus.BAD_REQUEST,
@@ -89,6 +106,27 @@ export function configureApplication(app: INestApplication): void {
             HttpStatus.BAD_REQUEST,
             'VALIDATION_ERROR',
             'Invalid analytics request.',
+          )
+        }
+        if (isAuditValidation) {
+          return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_ERROR',
+            'Invalid audit request.',
+          )
+        }
+        if (isUserValidation) {
+          return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_ERROR',
+            'Invalid user request.',
+          )
+        }
+        if (isSettingsValidation) {
+          return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_ERROR',
+            'Invalid settings request.',
           )
         }
         return new BadRequestException(errors)

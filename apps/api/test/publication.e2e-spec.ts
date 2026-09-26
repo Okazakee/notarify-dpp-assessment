@@ -385,18 +385,23 @@ describe('Publication core', () => {
     // The brand block carries the display name only in Stage 4.1.
     expect(snapshot).not.toContain('logoAssetId')
 
-    // Publication does not start the audit-log bonus: no audit row is written for the
-    // actor or for any entity this publication touched.
-    expect(
-      await prisma.auditEvent.count({
-        where: {
-          OR: [
-            { actorId: fixture.userId },
-            { entityId: { in: [published.versionId, published.passportId, draft.id] } },
-          ],
-        },
-      }),
-    ).toBe(0)
+    // Stage 4.1 asserted that publication started no audit trail, because the audit bonus
+    // did not exist yet. Stage 6 deliberately changes that: creating a new immutable version
+    // is an audited mutation, so exactly one publication event commits with it. A publish
+    // still audits nothing else — no Product row and no version row of its own.
+    const publicationAudit = await prisma.auditEvent.findMany({
+      where: { actorId: fixture.userId, action: 'PASSPORT_VERSION_PUBLISHED' },
+    })
+    expect(publicationAudit).toHaveLength(1)
+    expect(publicationAudit[0]?.entityType).toBe('Passport')
+    expect(publicationAudit[0]?.entityId).toBe(published.passportId)
+    // Nothing else was audited by the publish itself. The only other row for this actor is
+    // the draft creation the fixture performed.
+    const otherActions = await prisma.auditEvent.findMany({
+      where: { actorId: fixture.userId, action: { not: 'PASSPORT_VERSION_PUBLISHED' } },
+      select: { action: true },
+    })
+    expect(otherActions.map((row) => row.action)).toEqual(['PRODUCT_CREATED'])
   })
 
   it('returns the existing version when the same revision is published again', async () => {

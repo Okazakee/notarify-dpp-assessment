@@ -13,6 +13,7 @@ import {
 import type { ListPassportsQueryDto } from './dto/list-passports-query.dto.js'
 import type {
   HistoricalPassportView,
+  PassportHistorySummary,
   PassportListItem,
   PassportListResponse,
   PassportVersionsResponse,
@@ -29,7 +30,8 @@ const PASSPORT_LIST_SELECT = {
   id: true,
   publicUuid: true,
   firstPublishedAt: true,
-  product: { select: { id: true, draftRevision: true } },
+  withdrawnAt: true,
+  product: { select: { id: true, draftRevision: true, deletedAt: true } },
   currentVersion: {
     select: {
       versionNumber: true,
@@ -74,8 +76,9 @@ export class PassportsService {
     this.ensureCompanyId(companyId)
 
     // A passport without a current version is not an active publication and is excluded
-    // rather than rendered as an empty row. Withdrawal is not implemented; `withdrawnAt`
-    // is filtered here so this contract stays correct if it is added later.
+    // rather than rendered as an empty row. Withdrawal **is** implemented now — deleting a
+    // product withdraws its passport — so this filter is what keeps the back-office list
+    // active-only, while exact historical inspection deliberately uses a wider scope.
     const where: Prisma.PassportWhereInput = {
       withdrawnAt: null,
       currentVersionId: { not: null },
@@ -130,7 +133,7 @@ export class PassportsService {
       select: { versionNumber: true, publishedAt: true, sourceDraftRevision: true },
     })
 
-    const item = this.mapListItem(passport)
+    const item = this.mapHistorySummary(passport)
     if (item === null) {
       throw this.passportNotFound()
     }
@@ -295,12 +298,22 @@ export class PassportsService {
     return new Map(assets.map((asset) => [asset.id, asset.originalName]))
   }
 
+  /**
+   * Resolves a retained Passport for the actor's company.
+   *
+   * This is the gate for exact historical inspection, and it deliberately scopes by
+   * company ownership **only**. The normal passport list stays active-only, but an Admin
+   * must still be able to inspect the retained immutable versions of a Passport whose
+   * product was soft-deleted or whose Passport was withdrawn — that history is exactly
+   * what the soft-delete policy keeps. Nothing here becomes public: the anonymous surface
+   * resolves its own active version and never calls this method.
+   */
   private async findCompanyPassport(
     passportId: string,
     companyId: string,
   ): Promise<PassportListRow> {
     const passport = await this.prisma.passport.findFirst({
-      where: { id: passportId, withdrawnAt: null, product: { companyId, deletedAt: null } },
+      where: { id: passportId, product: { companyId } },
       select: PASSPORT_LIST_SELECT,
     })
     if (passport === null) {
@@ -310,7 +323,46 @@ export class PassportsService {
   }
 
   /**
-   * Maps one row into the back-office contract.
+   * The lifecycle-aware summary shown beside a passport's retained history.
+   *
+   * The active list row and this summary answer different questions, so they are separate
+   * projections of the same row. This one states whether the passport is still publicly
+   * active and, when it is not, withholds the public action URLs entirely: a withdrawn
+   * passport keeps its UUID, versions, QR bytes and current-version pointer, and every one
+   * of those public endpoints answers 404, so advertising them here would be a lie.
+   *
+   * Active status is read from lifecycle state — `withdrawnAt` and the owning product's
+   * `deletedAt` — and never inferred from the presence of a current version.
+   */
+  private mapHistorySummary(row: PassportListRow): PassportHistorySummary | null {
+    const current = row.currentVersion
+    if (current === null) {
+      return null
+    }
+
+    const identity = readPassportIdentity(current.publicSnapshot)
+    const isActive = row.withdrawnAt === null && row.product.deletedAt === null
+
+    return {
+      passportId: row.id,
+      productId: row.product.id,
+      product: identity ?? { name: null, sku: null, serialNumber: null },
+      publicUuid: row.publicUuid,
+      lifecycleStatus: isActive ? 'ACTIVE' : 'WITHDRAWN',
+      currentVersionNumber: current.versionNumber,
+      sourceDraftRevision: current.sourceDraftRevision,
+      currentDraftRevision: row.product.draftRevision,
+      hasUnpublishedChanges: row.product.draftRevision > current.sourceDraftRevision,
+      firstPublishedAt: row.firstPublishedAt.toISOString(),
+      currentPublishedAt: current.publishedAt.toISOString(),
+      publicUrl: isActive ? `${this.publicAppOrigin()}/passport/${row.publicUuid}` : null,
+      qrDownloadUrl: isActive ? `/passport/${row.publicUuid}/qr.png` : null,
+      pdfDownloadUrl: isActive ? `/passport/${row.publicUuid}/pdf` : null,
+    }
+  }
+
+  /**
+   * Maps one row into the active back-office list contract.
    *
    * Returns `null` when a row has no current version, which the list filter already
    * excludes; the caller drops such a row instead of inventing placeholder identity.

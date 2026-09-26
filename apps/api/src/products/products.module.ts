@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common'
 import { AnalyticsModule } from '../analytics/analytics.module.js'
 import { AssetsModule } from '../assets/assets.module.js'
+import { AuditModule } from '../audit/audit.module.js'
 import { AuthModule } from '../auth/auth.module.js'
 import { CategoriesController } from './categories.controller.js'
 import { ProductsController } from './products.controller.js'
 import { ProductsService } from './products.service.js'
 
 @Module({
-  imports: [AuthModule, AnalyticsModule, AssetsModule],
+  imports: [AuthModule, AnalyticsModule, AssetsModule, AuditModule],
   controllers: [ProductsController, CategoriesController],
   providers: [ProductsService],
   exports: [ProductsService],

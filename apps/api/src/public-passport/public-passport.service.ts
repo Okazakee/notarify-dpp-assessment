@@ -40,9 +40,10 @@ export class PublicPassportService {
    * Resolves the current active published version for a public UUID.
    *
    * Active means the passport exists, names a current version, is not withdrawn, and
-   * belongs to a product that is not soft-deleted. Withdrawal and soft deletion are not
-   * implemented yet, so those clauses are defensive: they are what stops a future
-   * lifecycle change from accidentally leaving withdrawn content publicly readable.
+   * belongs to a product that is not soft-deleted. Withdrawal and soft deletion are both
+   * implemented — deleting a product sets them in one transaction — so these clauses are
+   * load-bearing: they are what makes a withdrawn passport and a soft-deleted product
+   * publicly unreachable.
    */
   private async resolveActive(publicUuid: string): Promise<{
     passportId: string

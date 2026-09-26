@@ -8,6 +8,7 @@ import {
   assertStoredMime,
   assetNotFound,
   detectUpload,
+  IMAGE_MIME_TYPES,
   normalizeImage,
   sanitizeOriginalName,
   unsupportedFileType,
@@ -256,6 +257,30 @@ export class AssetsService {
             },
           ],
     )
+  }
+
+  /**
+   * Resolves one accepted, same-company image asset that still has stored content.
+   *
+   * This is the company-logo rule in one place: a foreign id, a non-accepted asset, an
+   * asset whose content is gone and a non-image all resolve to `null`, so a caller cannot
+   * accidentally accept one. The `companyId` predicate is part of the query rather than a
+   * check afterwards, which keeps a foreign asset indistinguishable from a missing one.
+   */
+  async findCompanyAcceptedImage(
+    companyId: string,
+    assetId: string,
+  ): Promise<{ id: string; detectedMime: string } | null> {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, companyId, state: AssetState.ACCEPTED, content: { isNot: null } },
+      select: { id: true, detectedMime: true },
+    })
+    if (asset === null) {
+      return null
+    }
+
+    const isImage = IMAGE_MIME_TYPES.some((mime) => mime === asset.detectedMime)
+    return isImage ? asset : null
   }
 
   /**

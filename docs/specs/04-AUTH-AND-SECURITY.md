@@ -64,4 +64,4 @@ Prefer plain text for descriptions. Normalize only according to documented field
 
 Helmet on Nest does not secure Next.js HTML automatically. Configure and test the frontend headers too. Configure @nestjs/throttler against the selected adapter and trusted proxy topology; its default storage choice must be explicit. Start with one API replica and document that a shared limiter is needed before scaling out. [Nest throttler](https://github.com/nestjs/throttler).
 
-Audit writes for successful product/user/settings/publish/delete mutations belong in the same transaction as the mutation. Record actor/action/target/time and safe change metadata. Do not store credential hashes, tokens, PDF contents or unrestricted request bodies. Append-only through the application is not cryptographic tamper-proofing.
+**Implemented in Stage 6.** Audit writes for successful product/user/settings/publish/delete mutations belong in the same transaction as the mutation. Record actor/action/target/time and safe change metadata. Do not store credential hashes, tokens, PDF contents or unrestricted request bodies. Append-only through the application is not cryptographic tamper-proofing.

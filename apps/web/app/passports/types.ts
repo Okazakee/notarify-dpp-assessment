@@ -46,8 +46,33 @@ export type PassportVersionSummary = {
   isCurrent: boolean
 }
 
+/**
+ * The lifecycle-aware summary shown beside a passport's retained history.
+ *
+ * Unlike the active list row, this can describe a withdrawn passport: it states the
+ * lifecycle explicitly and leaves the public action URLs null, because a withdrawn
+ * passport keeps its UUID, versions and QR bytes while every public surface answers 404.
+ */
+export type PassportHistorySummary = {
+  passportId: string
+  productId: string
+  product: PassportProductIdentity
+  publicUuid: string
+  lifecycleStatus: 'ACTIVE' | 'WITHDRAWN'
+  /** The retained current-version pointer. Not necessarily publicly served. */
+  currentVersionNumber: number
+  sourceDraftRevision: number
+  currentDraftRevision: number
+  hasUnpublishedChanges: boolean
+  firstPublishedAt: string
+  currentPublishedAt: string
+  publicUrl: string | null
+  qrDownloadUrl: string | null
+  pdfDownloadUrl: string | null
+}
+
 export type PassportVersionsResponse = {
-  passport: PassportListItem
+  passport: PassportHistorySummary
   versions: PassportVersionSummary[]
 }
 
@@ -190,12 +215,38 @@ function isVersionSummary(value: unknown): boolean {
   )
 }
 
+/**
+ * Validates the history summary, including the lifecycle state the page relies on to avoid
+ * advertising public actions that no longer exist.
+ */
+export function isPassportHistorySummary(value: unknown): value is PassportHistorySummary {
+  if (!isRecord(value)) {
+    return false
+  }
+  return (
+    typeof value.passportId === 'string' &&
+    typeof value.productId === 'string' &&
+    isIdentity(value.product) &&
+    typeof value.publicUuid === 'string' &&
+    (value.lifecycleStatus === 'ACTIVE' || value.lifecycleStatus === 'WITHDRAWN') &&
+    typeof value.currentVersionNumber === 'number' &&
+    typeof value.sourceDraftRevision === 'number' &&
+    typeof value.currentDraftRevision === 'number' &&
+    typeof value.hasUnpublishedChanges === 'boolean' &&
+    typeof value.firstPublishedAt === 'string' &&
+    typeof value.currentPublishedAt === 'string' &&
+    isNullableString(value.publicUrl) &&
+    isNullableString(value.qrDownloadUrl) &&
+    isNullableString(value.pdfDownloadUrl)
+  )
+}
+
 export function isPassportVersionsResponse(value: unknown): value is PassportVersionsResponse {
   if (!isRecord(value)) {
     return false
   }
   return (
-    isPassportListItem(value.passport) &&
+    isPassportHistorySummary(value.passport) &&
     Array.isArray(value.versions) &&
     value.versions.every(isVersionSummary)
   )

@@ -2,10 +2,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiUrl } from '../api-origin'
 import { useAuth } from '../auth-context'
-import { LogoutButton } from '../logout-button'
+import { BackOfficeNav } from '../back-office-nav'
 import { useAssetObjectUrls } from '../passport/use-asset-object-urls'
 import { describeApiError, ProductApiError, readApiResponse } from './api'
 import type {
@@ -131,7 +131,7 @@ function buildListQuery(page: number, pageSize: number, filters: ProductFilters)
 
 export default function ProductsPage() {
   const router = useRouter()
-  const { request, status } = useAuth()
+  const { request, status, user } = useAuth()
   const [categories, setCategories] = useState<Category[]>([])
   const [filters, setFilters] = useState<ProductFilters>(EMPTY_FILTERS)
   const [appliedFilters, setAppliedFilters] = useState<ProductFilters>(EMPTY_FILTERS)
@@ -142,7 +142,13 @@ export default function ProductsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [categoriesError, setCategoriesError] = useState<string | null>(null)
-
+  // Deletion is a lifecycle change, so it asks first and reports its outcome explicitly.
+  const [deleteTarget, setDeleteTarget] = useState<ProductListItem | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const loadSequence = useRef(0)
+  const isAdmin = user?.role === 'ADMIN'
   // Only the ids are fetched, and only for the rows on this bounded page, so a page of
   // products costs one authenticated request per cover instead of one per row per render.
   const coverAssetIds = useMemo(
@@ -190,42 +196,74 @@ export default function ProductsPage() {
     }
   }, [request, status])
 
+  const loadProducts = useCallback(async () => {
+    // Rapid filter or page changes can leave an earlier request in flight. Each load takes a
+    // sequence number and only the newest one may write state, so a slow earlier response
+    // cannot overwrite newer data or clear the loading flag for a pending request.
+    loadSequence.current += 1
+    const sequence = loadSequence.current
+    setIsLoading(true)
+    setError(null)
+    const query = buildListQuery(page, pageSize, appliedFilters)
+    try {
+      const response = await request(`/products?${query}`)
+      const payload = await readApiResponse<unknown>(response)
+      if (!isProductListResponse(payload)) {
+        throw new ProductApiError(502, 'The API returned invalid product data.')
+      }
+      if (sequence === loadSequence.current) {
+        setProducts(payload)
+      }
+    } catch (requestError) {
+      if (sequence === loadSequence.current) {
+        setError(describeApiError(requestError, 'Unable to load products.'))
+      }
+    } finally {
+      if (sequence === loadSequence.current) {
+        setIsLoading(false)
+      }
+    }
+  }, [appliedFilters, page, pageSize, request])
+
   useEffect(() => {
     if (status !== 'signed-in') {
       return
     }
-
-    let active = true
-    setIsLoading(true)
-    setError(null)
-    const query = buildListQuery(page, pageSize, appliedFilters)
-    void request(`/products?${query}`)
-      .then((response) => readApiResponse<unknown>(response))
-      .then((payload) => {
-        if (!isProductListResponse(payload)) {
-          throw new ProductApiError(502, 'The API returned invalid product data.')
-        }
-        if (active) {
-          setProducts(payload)
-        }
-      })
-      .catch((requestError: unknown) => {
-        if (active) {
-          setError(describeApiError(requestError, 'Unable to load products.'))
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setIsLoading(false)
-        }
-      })
-
-    return () => {
-      active = false
-    }
-  }, [appliedFilters, page, pageSize, request, status])
+    void loadProducts()
+  }, [loadProducts, status])
 
   const pageCount = products?.totalPages ?? 0
+
+  /**
+   * Confirms a soft delete.
+   *
+   * Deletion is a lifecycle change rather than a row removal, so the copy states what
+   * actually happens — the product leaves the back office, its public Passport is
+   * withdrawn, and history is kept — instead of implying an irreversible hard delete.
+   */
+  const confirmDelete = useCallback(async () => {
+    if (deleteTarget === null) {
+      return
+    }
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      const response = await request(`/products/${deleteTarget.id}`, { method: 'DELETE' })
+      if (!response.ok) {
+        throw new ProductApiError(response.status, 'We could not delete this product.')
+      }
+      setNotice(
+        `Deleted ${deleteTarget.name ?? 'the product'}. Its public Passport is withdrawn and its history is retained.`,
+      )
+      setDeleteTarget(null)
+      await loadProducts()
+    } catch (deleteFailure) {
+      setDeleteError(describeApiError(deleteFailure, 'We could not delete this product.'))
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [deleteTarget, loadProducts, request])
+
   const canGoPrevious = page > 1 && !isLoading
   const canGoNext = pageCount > 0 && page < pageCount && !isLoading
   const showingRange = useMemo(() => {
@@ -305,25 +343,7 @@ export default function ProductsPage() {
             <p className="mt-1 text-sm text-base-content/70">Create and maintain product drafts.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link
-              href="/analytics"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Analytics
-            </Link>
-            <Link
-              href="/passports"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Product Passports
-            </Link>
-            <Link
-              href="/"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Workspace
-            </Link>
-            <LogoutButton />
+            <BackOfficeNav />
           </div>
         </header>
 
@@ -458,6 +478,12 @@ export default function ProductsPage() {
             ) : null}
           </div>
         </section>
+
+        {notice !== null ? (
+          <p className="alert alert-success mt-6" role="status" data-testid="product-notice">
+            {notice}
+          </p>
+        ) : null}
 
         {error !== null ? (
           <p className="alert alert-error mt-6" role="alert">
@@ -608,6 +634,29 @@ export default function ProductsPage() {
                             >
                               Edit
                             </Link>
+                            <Link
+                              className="btn btn-xs btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                              href={`/products/${product.id}/view`}
+                              onClick={(event) => event.stopPropagation()}
+                              data-testid="product-view"
+                            >
+                              View
+                            </Link>
+                            {isAdmin ? (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-ghost text-error focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setNotice(null)
+                                  setDeleteError(null)
+                                  setDeleteTarget(product)
+                                }}
+                                data-testid="product-delete"
+                              >
+                                Delete
+                              </button>
+                            ) : null}
                             {product.passport === null ? (
                               <span
                                 className="text-xs text-base-content/50"
@@ -690,6 +739,57 @@ export default function ProductsPage() {
           </div>
         </section>
       </div>
+
+      {deleteTarget !== null ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-product-heading"
+          data-testid="product-delete-dialog"
+        >
+          <div className="card w-full max-w-lg border border-base-300 bg-base-100 shadow-xl">
+            <div className="card-body gap-4">
+              <h2 id="delete-product-heading" className="text-xl font-semibold">
+                Delete this product?
+              </h2>
+              <p className="text-sm text-base-content/70">
+                Deleting removes {deleteTarget.name ?? 'this product'} from the back office and
+                withdraws its public Passport if it has one. Its immutable versions, files,
+                analytics and audit history are kept, and there is no restore action.
+              </p>
+              {deleteError !== null ? (
+                <p className="alert alert-error" role="alert">
+                  {deleteError}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn btn-ghost focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                  onClick={() => {
+                    setDeleteError(null)
+                    setDeleteTarget(null)
+                  }}
+                  disabled={isDeleting}
+                  data-testid="product-delete-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-error focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                  onClick={() => void confirmDelete()}
+                  disabled={isDeleting}
+                  data-testid="product-delete-confirm"
+                >
+                  {isDeleting ? 'Deleting…' : 'Delete product'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }
