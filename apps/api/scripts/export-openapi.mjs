@@ -26,7 +26,22 @@ import { buildOpenApiDocument } from '../dist/src/openapi.js'
 const OUTPUT = resolve(import.meta.dirname, '../../../docs/openapi.json')
 const checkOnly = process.argv.includes('--check')
 
-const app = await NestFactory.create(AppModule, { logger: false })
+/**
+ * Nest's exceptions zone calls `process.exit(1)` when an async error escapes, and this script
+ * runs the application with logging disabled so that message would be invisible — the process
+ * would simply exit non-zero with no explanation. Report it instead, and leave the exit code
+ * to the checks below.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('Unexpected failure while generating the OpenAPI document:')
+  console.error(reason)
+  process.exitCode = 1
+})
+
+// Configuration errors are reported rather than swallowed: this script boots the real
+// application, so a missing JWT_SECRET or origin should explain itself instead of exiting
+// non-zero with no output. Informational startup logs stay quiet.
+const app = await NestFactory.create(AppModule, { logger: ['error', 'warn'] })
 configureApplication(app)
 
 try {
@@ -36,23 +51,25 @@ try {
   const serialized = `${JSON.stringify(document, null, 2)}\n`
 
   if (checkOnly) {
-    let committed
+    let committed = null
     try {
       committed = readFileSync(OUTPUT, 'utf8')
     } catch {
       console.error('docs/openapi.json is missing. Run `pnpm openapi:generate`.')
-      process.exit(1)
+      process.exitCode = 1
     }
 
-    if (committed !== serialized) {
+    if (committed !== null && committed !== serialized) {
       console.error(
         'docs/openapi.json is stale: the API contract changed without regenerating it.\n' +
           'Run `pnpm openapi:generate` and commit the result.',
       )
-      process.exit(1)
+      process.exitCode = 1
     }
 
-    console.info('OpenAPI artifact is up to date.')
+    if (process.exitCode !== 1) {
+      console.info('OpenAPI artifact is up to date.')
+    }
   } else {
     mkdirSync(resolve(OUTPUT, '..'), { recursive: true })
     writeFileSync(OUTPUT, serialized, 'utf8')
@@ -61,5 +78,11 @@ try {
     )
   }
 } finally {
-  await app.close()
+  // Shutting the context down is best-effort. The process is about to exit, and a disconnect
+  // failure from a client that never connected must not become the exit code CI reads — that
+  // is exactly the mistake this script used to make, silently.
+  await app.close().catch((error) => {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.error(`warning: the Nest context did not shut down cleanly: ${reason}`)
+  })
 }
