@@ -42,14 +42,20 @@ RUN pnpm --filter @notarify/web build
 # ---------------------------------------------------------------------------------------
 FROM base AS runner
 ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=builder /app/apps/web/.next ./apps/web/.next
+# Absolute destinations, and the working directory set to the app so `next start` resolves
+# `.next` correctly.
+COPY --from=deps /app/node_modules /app/node_modules
+COPY --from=deps /app/apps/web/node_modules /app/apps/web/node_modules
+COPY --from=builder /app/apps/web/.next /app/apps/web/.next
 # `next start` reads the config at runtime, and this one owns the /q/:uuid rewrite.
-COPY --from=builder /app/apps/web/next.config.ts ./apps/web/next.config.ts
-COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/apps/web/next.config.ts /app/apps/web/next.config.ts
+COPY --from=builder /app/apps/web/package.json /app/apps/web/package.json
+COPY --from=builder /app/package.json /app/package.json
 
+WORKDIR /app/apps/web
+# Run as the unprivileged user the base image already provides.
 USER node
 EXPOSE 3001
-CMD ["pnpm", "--filter", "@notarify/web", "start", "--", "-p", "3001"]
+# Invoke Next's own entry point rather than a package-manager script: the runtime image has
+# no reason to carry Corepack, and an unprivileged user cannot write a lockfile into /app.
+CMD ["node", "./node_modules/next/dist/bin/next", "start", "-p", "3001"]
