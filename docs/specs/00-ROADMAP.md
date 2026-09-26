@@ -44,7 +44,7 @@ P0 = required functionality plus the security/testing needed to trust it. P1 = b
 | 6 | Remaining required back-office and lifecycle work: Product DELETE, Users, Settings, and the audit and soft-delete bonuses | Soft delete, audit logs | Every assessment-required route and action exists, is authorized, and is covered |
 | 7 | Docker/Compose completion and testing, migrations, seed, Swagger/OpenAPI, README, architecture document, final E2E, security checks, clean-clone validation and final reconciliation | Unit/integration/E2E evidence consolidated | Reviewer can run it and Cristian can explain critical paths |
 
-Stages 0–6 are complete and merged into `main`. Every application feature the assessment requires now exists, including all nine bonuses: full-text search, Passport versioning, soft delete, audit logs, Redis, pagination and advanced filtering, Passport PDF export, drag-and-drop uploads and automated tests. Stage 7 owns delivery, packaging and submission only.
+Stages 0–6 are complete and merged into `main`. Every application feature the assessment requires now exists, including all nine bonuses: full-text search, Passport versioning, soft delete, audit logs, Redis, pagination and advanced filtering, Passport PDF export, drag-and-drop uploads and automated tests. Stage 7 delivered that delivery work and is implemented on `build/final-delivery`: reviewer packaging, OpenAPI, security scanning and submission documentation.
 
 ### Stage 4 milestones
 
@@ -67,7 +67,7 @@ Historical versions are back-office only. No public historical-version route is 
 
 ## Delivery sequence
 
-Work proceeds as gated milestones rather than calendar days: each milestone has a bounded acceptance surface and a recorded decision gate before the next one starts. Stages 0–3 are complete. Stage 4 ran as the six milestones above, Stage 5 delivered analytics, the dashboard, Total Views and the Redis cache bonus, and Stage 6 (remaining back-office and lifecycle work) and Stage 7 (delivery and submission) remain.
+Work proceeds as gated milestones rather than calendar days: each milestone has a bounded acceptance surface and a recorded decision gate before the next one starts. Stages 0–3 are complete. Stage 4 ran as the six milestones above, Stage 5 delivered analytics, the dashboard, Total Views and the Redis cache bonus, and Stage 6 delivered the remaining back-office and lifecycle work, and Stage 7 delivered the packaging, OpenAPI and submission material.
 
 Every required feature and all nine bonuses remain in scope, and sequence is a working order rather than permission to omit. If time is tight, reduce decorative polish first and report any incomplete item honestly; do not quietly drop a required feature or a listed bonus, and do not weaken authorization, upload safety, test evidence, required pages or documentation to gain time.
 

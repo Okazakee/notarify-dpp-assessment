@@ -268,6 +268,26 @@ Cristian settled these by supplying the Stage 6 instruction. The recorded decisi
 | Read-only Product view | `/products/:id/view` renders the **current private draft** through the existing `GET /products/:id`, not the published snapshot, and mutates nothing. |
 | Navigation | One shared component renders the six Admin destinations and the first four for an Editor. Hiding a link is presentation only; the API guard chain is authoritative. |
 
+### B14. Delivery, packaging and reviewer-reproducibility decisions (Stage 7, Cristian decision 2026-09-26)
+
+Cristian settled these by supplying the Stage 7 instruction. The recorded decisions are:
+
+| Decision | Recorded outcome |
+| --- | --- |
+| Reviewer path | Docker Compose is the primary reviewer path; native Node/pnpm remains documented for developers. The stack is `postgres`, `redis`, `migrate`, `api`, `web` plus an explicit `seed` service behind a profile, so `up` never touches reviewer data. |
+| Internal vs browser API origin | `NEXT_PUBLIC_API_URL` is the browser-visible origin and `INTERNAL_API_URL` the server-side one, falling back to the browser origin when unset. `INTERNAL_API_URL` is deliberately not a `NEXT_PUBLIC_*` variable, so the container-internal address can never reach rendered HTML. |
+| QR bridge | `/q/:uuid` is a route handler rather than a `next.config.ts` rewrite, because Next bakes rewrite destinations at build time and that pinned the container-internal origin. |
+| Runtime base image | `node:24.21.0-trixie-slim`. Trivy reports four critical OS-layer findings on bookworm and none on trixie for the same Node version; Debian glibc stays forward-compatible for the prebuilt native modules (`sharp`, `@node-rs/argon2`). Alpine was rejected for musl risk, not size. |
+| Runtime image contents | Non-root, compiled output plus installed dependencies, and **no package manager**: neither runner invokes npm/pnpm, and every fixable finding Trivy reported lived in npm's bundled tree. |
+| PostgreSQL volume | Mounted at `/var/lib/postgresql`, which is where the 18+ image expects it; `/var/lib/postgresql/data` makes the entrypoint refuse to start. |
+| Swagger exposure | Swagger UI is available at `/docs` and gated by `SWAGGER_ENABLED`, enabled outside production and **disabled in production unless explicitly enabled**. Verified: `/docs` and `/docs-json` return 404 in a production container with the flag unset and 200 when set. |
+| OpenAPI artifact | `docs/openapi.json` is generated, committed and checked for drift in CI; it is never hand-edited. Generation builds the compiled API and needs no live database, Redis or listening port, but does need the validated environment (`JWT_SECRET` included) — a misconfiguration now reports itself instead of exiting silently. |
+| Demo credentials | Seeded demo passwords come from `DEMO_ADMIN_PASSWORD` / `DEMO_EDITOR_PASSWORD` with public local defaults. They are labelled demo-only, are never production credentials, and the seed hashes them with the same Argon2id settings the login path verifies with. |
+| Seed policy | `pnpm db:seed` is idempotent and non-destructive: deterministic ids mean a second run changes nothing, the seeded fixtures' own nested content is restored to a deterministic state, and reviewer-created products, users and assets are left alone. |
+| Backups | Asset bytes live in PostgreSQL, so a `pg_dump` is the complete durable backup and Redis needs none. A dump/restore cycle was executed and the restored database was run behind a real API instance. |
+| Production topology | Documented as two origins (web and API) because the refresh cookie is scoped to `/auth`. Explicitly recorded as **not deployed or verified on a real host**. |
+| Web security headers | Baseline headers (nosniff, frame-deny, referrer, permissions) are set and the framework-identifying header is off. CSP, COEP and SRI are deliberate omissions with recorded reasons rather than permissive approximations. |
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.
