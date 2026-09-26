@@ -11,11 +11,15 @@
 # Debian slim rather than Alpine on purpose. The application depends on prebuilt native
 # modules (`sharp`, `@node-rs/argon2`) whose glibc builds are the supported ones; musl would
 # add real risk for a small size win.
+#
+# Trixie rather than bookworm: the same pinned Node version on the newer Debian release is a
+# materially patched OS layer (a Trivy scan of both shows zero critical findings on trixie
+# against four on bookworm), and glibc stays forward-compatible for the prebuilt binaries.
 
 # ---------------------------------------------------------------------------------------
 # base
 # ---------------------------------------------------------------------------------------
-FROM node:24.21.0-bookworm-slim AS base
+FROM node:24.21.0-trixie-slim AS base
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     CI=true
