@@ -199,9 +199,11 @@ The schema is in `prisma/schema.prisma`; the initial migration
 `prisma/migrations/20260921152150_init` is the only one, and it is applied with
 `prisma migrate deploy` (never `db push`, never `migrate dev` in a container).
 
-`pnpm db:seed` is idempotent: deterministic ids mean a second run changes nothing and creates
-no duplicates. It restores the seeded fixtures' own content to a deterministic state and
-leaves every other product, user and asset untouched.
+`pnpm db:seed` never creates duplicates: deterministic ids mean a second run adds no copy, and
+it never touches a product, user or asset you created. It **is** a reset of the demo fixtures
+themselves — their nested content, scalar fields, the company display name and their password
+hashes return to the deterministic state, and a withdrawn demo Passport is restored — so treat
+it as "restore the demo" rather than a no-op.
 
 ## Backups
 
@@ -239,8 +241,10 @@ Redis holds only disposable cache entries and needs no backup.
   public read resolves visibility and the current version from PostgreSQL first.
 * No secret is baked into an image: configuration is supplied at runtime, and the runtime
   images contain no package manager.
-* `pnpm audit`, Gitleaks, Trivy and a ZAP baseline are run against this repository; the
-  findings and their triage are recorded in [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md).
+* `pnpm audit` runs in CI on every push. Gitleaks (repository history), Trivy (repository and
+  the built images) and a ZAP baseline of the anonymous surface were run during Stage 7, with
+  their commands, results and triage recorded in [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md); they
+  are not yet a CI gate.
 
 ## Deployment notes
 

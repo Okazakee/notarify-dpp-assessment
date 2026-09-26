@@ -42,15 +42,15 @@ RUN pnpm --filter @notarify/web build
 # ---------------------------------------------------------------------------------------
 FROM base AS runner
 ENV NODE_ENV=production
-# Absolute destinations, and the working directory set to the app so `next start` resolves
-# `.next` correctly.
-COPY --from=deps /app/node_modules /app/node_modules
-COPY --from=deps /app/apps/web/node_modules /app/apps/web/node_modules
-COPY --from=builder /app/apps/web/.next /app/apps/web/.next
+# Absolute destinations, owned by the unprivileged runtime user, so anything Next writes into
+# its build directory at runtime cannot fail on permissions.
+COPY --chown=node:node --from=deps /app/node_modules /app/node_modules
+COPY --chown=node:node --from=deps /app/apps/web/node_modules /app/apps/web/node_modules
+COPY --chown=node:node --from=builder /app/apps/web/.next /app/apps/web/.next
 # `next start` reads the config at runtime, and this one owns the /q/:uuid rewrite.
-COPY --from=builder /app/apps/web/next.config.ts /app/apps/web/next.config.ts
-COPY --from=builder /app/apps/web/package.json /app/apps/web/package.json
-COPY --from=builder /app/package.json /app/package.json
+COPY --chown=node:node --from=builder /app/apps/web/next.config.ts /app/apps/web/next.config.ts
+COPY --chown=node:node --from=builder /app/apps/web/package.json /app/apps/web/package.json
+COPY --chown=node:node --from=builder /app/package.json /app/package.json
 
 WORKDIR /app/apps/web
 # The runtime image starts Next's own entry point with node, so no package manager is needed.

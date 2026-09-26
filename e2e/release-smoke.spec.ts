@@ -9,8 +9,9 @@ import { expect, test } from '@playwright/test'
  * the fixture, so this suite is the end-to-end proof that a reviewer who only has the
  * repository can clone, build, migrate, seed and exercise the application.
  *
- * It mutates the demo data on purpose — it publishes the seeded draft and withdraws the
- * second product — which is why the README documents the reset:
+ * It mutates the demo data on purpose — it publishes the seeded complete draft and then
+ * withdraws it, and deletes the second (draft-only) product — which is why the README
+ * documents the reset:
  *
  *   docker compose down -v && docker compose up --build -d && docker compose run --rm seed
  */
@@ -179,15 +180,21 @@ test('packaged stack serves the reviewer journey end to end', async ({
   await expect(page.getByTestId('product-notice')).toContainText('Deleted')
   await expect(page.getByRole('row').filter({ hasText: BOTTLE })).toHaveCount(0)
 
-  // Every anonymous surface for the withdrawn Passport is gone…
-  for (const path of [
-    `/passport/${publicUuid}`,
-    `/passport/${publicUuid}/qr.png`,
-    `/passport/${publicUuid}/pdf`,
-    `/q/${publicUuid}`,
-  ]) {
-    const response = await request.get(path, { maxRedirects: 0 })
-    expect([path, response.status()]).toEqual([path, 404])
+  // Every anonymous surface for the withdrawn Passport is gone. Each one is requested from
+  // the origin that actually serves it — the page and the QR bridge from the web origin, the
+  // JSON projection, QR image, PDF export and resolver from the API — because asking the web
+  // origin for an API path would 404 whether or not the Passport still existed.
+  const withdrawnSurfaces = [
+    `${WEB}/passport/${publicUuid}`,
+    `${WEB}/q/${publicUuid}`,
+    `${API}/passport/${publicUuid}`,
+    `${API}/passport/${publicUuid}/qr.png`,
+    `${API}/passport/${publicUuid}/pdf`,
+    `${API}/q/${publicUuid}`,
+  ]
+  for (const url of withdrawnSurfaces) {
+    const response = await request.get(url, { maxRedirects: 0 })
+    expect([url, response.status()]).toEqual([url, 404])
   }
 
   // …the active-only list no longer offers it…

@@ -16,10 +16,12 @@ import { PrismaClient } from '../apps/api/src/generated/prisma/client.ts'
  *
  * Two properties matter for a reviewer:
  *
- * 1. **It is idempotent.** Every row is keyed by a fixed id or stable code, so running it
- *    twice changes nothing and creates no duplicates. Re-running restores the *seeded*
- *    fixtures' own nested content to this deterministic state and leaves every other
- *    product, user and asset — including anything the reviewer created — untouched.
+ * 1. **It is idempotent in the sense that matters.** Every row is keyed by a fixed id or
+ *    stable code, so running it twice creates no duplicates and never touches a product,
+ *    user or asset the reviewer created. It *is* a reset of the seeded fixtures themselves:
+ *    their nested content, scalar fields, the company display name and their password hashes
+ *    (freshly salted) all return to this deterministic state, and a withdrawn seeded Passport
+ *    is withdrawn no longer. Treat it as "restore the demo", not "do nothing if present".
  * 2. **It is immediately usable.** The reviewer can log in with the printed demo
  *    credentials, open a complete draft, Preview it and publish it.
  *
@@ -244,6 +246,15 @@ try {
 
   // Nested content belongs to the seeded products only, so replacing it keeps the seed
   // deterministic without touching anything the reviewer created.
+  //
+  // Re-seeding is a reset of the demo fixtures, not a no-op: it restores their nested content,
+  // their scalar fields, the company display name and freshly salted password hashes. It clears
+  // a withdrawn Passport too, because withdrawal is the terminal public state and a demo that
+  // stayed 404 after a re-seed would be unrecoverable without destroying the volume.
+  await prisma.passport.updateMany({
+    where: { productId: { in: [COMPLETE_PRODUCT_ID, SECOND_PRODUCT_ID] } },
+    data: { withdrawnAt: null },
+  })
   await prisma.material.deleteMany({ where: { productId: COMPLETE_PRODUCT_ID } })
   await prisma.material.createMany({
     data: [
