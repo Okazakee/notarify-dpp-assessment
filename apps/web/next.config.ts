@@ -3,10 +3,16 @@ import type { NextConfig } from 'next'
 /**
  * The API origin used to resolve API-relative routes.
  *
- * Deliberately the same `NEXT_PUBLIC_API_URL` the browser client already uses, so the
- * frontend has one API origin rather than two that can drift apart.
+ * Two origins are possible. The browser reaches the API at `NEXT_PUBLIC_API_URL`, while
+ * this rewrite runs inside the web server, which in a container reaches the API at
+ * `INTERNAL_API_URL`. Falling back to the browser origin keeps native development working
+ * without either variable being set.
  */
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+const API_URL = (
+  process.env.INTERNAL_API_URL && process.env.INTERNAL_API_URL.length > 0
+    ? process.env.INTERNAL_API_URL
+    : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000')
+).replace(/\/$/, '')
 
 const nextConfig: NextConfig = {
   // Next 16 writes AGENTS.md and CLAUDE.md next to this config on every `next dev`.

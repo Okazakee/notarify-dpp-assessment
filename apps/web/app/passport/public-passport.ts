@@ -1,4 +1,4 @@
-import { API_ORIGIN, apiUrl } from '../api-origin'
+import { apiUrl, serverApiUrl } from '../api-origin'
 import type { PassportDocumentKind, PassportPresentationModel } from './presentation'
 
 /**
@@ -253,7 +253,7 @@ export type PublicPassportResult =
 export async function fetchPublicPassport(publicUuid: string): Promise<PublicPassportResult> {
   let response: Response
   try {
-    response = await fetch(`${API_ORIGIN}/passport/${encodeURIComponent(publicUuid)}`, {
+    response = await fetch(`${serverApiUrl(`/passport/${encodeURIComponent(publicUuid)}`)}`, {
       cache: 'no-store',
       headers: { accept: 'application/json' },
     })
