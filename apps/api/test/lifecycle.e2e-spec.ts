@@ -516,6 +516,17 @@ describe('Product soft deletion', () => {
       .set(auth(token))
     expect(versions.status).toBe(200)
     expect((versions.body.versions as unknown[]).length).toBe(1)
+
+    // The retained history states the lifecycle truthfully: the Passport keeps its stable
+    // UUID, its retained version and its QR bytes, but no public action is advertised,
+    // because every one of those endpoints answers 404.
+    expect(versions.body.passport.lifecycleStatus).toBe('WITHDRAWN')
+    expect(versions.body.passport.publicUuid).toBe(publicUuid)
+    expect(versions.body.passport.currentVersionNumber).toBe(1)
+    expect(versions.body.passport.publicUrl).toBeNull()
+    expect(versions.body.passport.qrDownloadUrl).toBeNull()
+    expect(versions.body.passport.pdfDownloadUrl).toBeNull()
+
     const historical = await request(app.getHttpServer())
       .get(`/passports/${passportId}/versions/1`)
       .set(auth(token))
@@ -529,6 +540,37 @@ describe('Product soft deletion', () => {
         (item) => item.passportId === passportId,
       ),
     ).toBe(false)
+  })
+
+  it('reports an active passport history with its public actions available', async () => {
+    const fixture = await createFixture()
+    const token = await login(fixture)
+    const draft = await createDraft(token, await createCategory())
+    const published = await publish(token, draft.productId, draft.draftRevision)
+    expect(published.status).toBe(200)
+    const passportId = published.body.passportId as string
+    const publicUuid = published.body.publicUuid as string
+
+    // Fixing withdrawn history must not regress active history: an active Passport still
+    // reports ACTIVE and still offers its current public actions.
+    const versions = await request(app.getHttpServer())
+      .get(`/passports/${passportId}/versions`)
+      .set(auth(token))
+    expect(versions.status).toBe(200)
+    expect(versions.body.passport.lifecycleStatus).toBe('ACTIVE')
+    expect(versions.body.passport.publicUrl).toBe(
+      `https://public.example.test/passport/${publicUuid}`,
+    )
+    expect(versions.body.passport.qrDownloadUrl).toBe(`/passport/${publicUuid}/qr.png`)
+    expect(versions.body.passport.pdfDownloadUrl).toBe(`/passport/${publicUuid}/pdf`)
+
+    // The active list still reports the same passport, with the same action metadata.
+    const list = await request(app.getHttpServer()).get('/passports').set(auth(token))
+    expect(list.status).toBe(200)
+    const item = (list.body.items as Array<{ passportId: string; publicUrl: string }>).find(
+      (row) => row.passportId === passportId,
+    )
+    expect(item?.publicUrl).toBe(`https://public.example.test/passport/${publicUuid}`)
   })
 
   it('composes with a concurrent draft save without a partial write', async () => {

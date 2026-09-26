@@ -74,8 +74,9 @@ export default function PassportHistoryPage() {
           return
         }
         setState({ kind: 'ready', data })
-        // Default to what the public URL serves today, so the first thing shown is never
-        // mistaken for the anonymous projection.
+        // Default to the retained current-version pointer, so the first thing shown is
+        // never mistaken for the anonymous projection. For a withdrawn passport that
+        // pointer is the last published version rather than a publicly served one.
         const current = data.versions.find((version) => version.isCurrent) ?? data.versions[0]
         setSelectedVersion(current === undefined ? null : current.versionNumber)
       })
@@ -211,6 +212,12 @@ export default function PassportHistoryPage() {
 
   const data = state.kind === 'ready' ? state.data : null
   const currentVersionNumber = data?.passport.currentVersionNumber ?? null
+  /**
+   * A withdrawn passport keeps its UUID, versions and QR bytes, but every public surface
+   * answers 404. The chrome therefore stops advertising public actions instead of offering
+   * links that cannot work.
+   */
+  const isWithdrawn = data?.passport.lifecycleStatus === 'WITHDRAWN'
   const isSelectedCurrent =
     view !== null && currentVersionNumber !== null && view.passport.version === currentVersionNumber
 
@@ -226,7 +233,9 @@ export default function PassportHistoryPage() {
               Passport version history
             </h1>
             <p className="mt-1 text-sm text-base-content/70">
-              Retained immutable versions. The public URL always shows the current version.
+              {isWithdrawn
+                ? 'Retained immutable versions of a withdrawn Passport. Nothing here is publicly available.'
+                : 'Retained immutable versions. The public URL always shows the current version.'}
             </p>
           </div>
           <BackOfficeNav />
@@ -275,7 +284,9 @@ export default function PassportHistoryPage() {
                         </dd>
                       </div>
                       <div className="flex gap-2">
-                        <dt className="text-base-content/60">Current version</dt>
+                        <dt className="text-base-content/60">
+                          {isWithdrawn ? 'Last published version' : 'Current version'}
+                        </dt>
                         <dd data-testid="history-current-version">
                           v{data.passport.currentVersionNumber}
                         </dd>
@@ -289,33 +300,51 @@ export default function PassportHistoryPage() {
                         <dd>{displayDate(data.passport.currentPublishedAt)}</dd>
                       </div>
                     </dl>
+                    {isWithdrawn ? (
+                      <p
+                        className="mt-3 rounded-box border border-base-300 bg-base-200 px-3 py-2 text-sm"
+                        data-testid="history-withdrawn-notice"
+                      >
+                        This Passport has been withdrawn. Its immutable publication history is
+                        retained for administrative inspection. The public Passport, QR and PDF are
+                        no longer available.
+                      </p>
+                    ) : null}
                     {data.passport.hasUnpublishedChanges ? (
                       <p className="mt-3 text-sm text-warning-content">
                         <span className="badge badge-warning badge-sm">Unpublished changes</span>
                       </p>
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <a
-                      className="btn btn-sm btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-                      href={data.passport.publicUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open current Passport
-                    </a>
-                    <a
-                      className="btn btn-sm btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-                      href={apiUrl(data.passport.qrDownloadUrl)}
-                      data-testid="history-qr-download"
-                    >
-                      Download QR
-                    </a>
-                  </div>
+                  {/* A withdrawn passport has no public surface, so its public actions are
+                      omitted rather than rendered as dead links. */}
+                  {!isWithdrawn &&
+                  data.passport.publicUrl !== null &&
+                  data.passport.qrDownloadUrl !== null ? (
+                    <div className="flex flex-wrap gap-2">
+                      <a
+                        className="btn btn-sm btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                        href={data.passport.publicUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-testid="history-open-current"
+                      >
+                        Open current Passport
+                      </a>
+                      <a
+                        className="btn btn-sm btn-outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
+                        href={apiUrl(data.passport.qrDownloadUrl)}
+                        data-testid="history-qr-download"
+                      >
+                        Download QR
+                      </a>
+                    </div>
+                  ) : null}
                 </div>
                 <p className="mt-4 text-xs text-base-content/60">
-                  The QR code belongs to the passport, not to a version, so a printed code keeps
-                  working across every past and future version.
+                  {isWithdrawn
+                    ? 'The stored QR artifact and every retained version stay in the database for audit, but the printed code no longer resolves.'
+                    : 'The QR code belongs to the passport, not to a version, so a printed code keeps working across every past and future version.'}
                 </p>
               </div>
             </section>
@@ -350,7 +379,9 @@ export default function PassportHistoryPage() {
                           <td>{version.sourceDraftRevision}</td>
                           <td>
                             {version.isCurrent ? (
-                              <span className="badge badge-success badge-sm">Current</span>
+                              <span className="badge badge-success badge-sm">
+                                {isWithdrawn ? 'Last published' : 'Current'}
+                              </span>
                             ) : (
                               <span className="badge badge-ghost badge-sm">Retained</span>
                             )}
@@ -404,9 +435,11 @@ export default function PassportHistoryPage() {
                       {isSelectedCurrent ? ' (current)' : ''}
                     </p>
                     <p className="mt-1 text-sm text-base-content/70">
-                      {isSelectedCurrent
-                        ? 'This is what the public URL serves today.'
-                        : `This is retained history. The public URL currently shows v${view.passport.currentVersionNumber}.`}
+                      {isWithdrawn
+                        ? 'This immutable version is retained history. The Passport is withdrawn, so no public surface serves it.'
+                        : isSelectedCurrent
+                          ? 'This is what the public URL serves today.'
+                          : `This is retained history. The public URL currently shows v${view.passport.currentVersionNumber}.`}
                     </p>
                   </div>
                   <div className="mt-6">

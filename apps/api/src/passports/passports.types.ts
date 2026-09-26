@@ -60,13 +60,48 @@ export type PassportVersionListItem = {
 }
 
 /**
+ * The passport summary shown alongside its retained history.
+ *
+ * It is deliberately **not** the active list row. A withdrawn passport still has a stable
+ * UUID, retained versions, retained QR bytes and a current-version pointer, but it has no
+ * public surface at all, so this shape carries an explicit lifecycle state and leaves the
+ * public action URLs null instead of mechanically constructing links that would 404.
+ *
+ * `lifecycleStatus` is derived from PostgreSQL lifecycle state — `withdrawnAt` and the
+ * owning product's `deletedAt` — never from the mere existence of a current version, QR
+ * bytes or a public UUID, all of which a withdrawn passport intentionally keeps.
+ */
+export type PassportHistorySummary = {
+  passportId: string
+  productId: string
+  product: PassportProductIdentity
+  publicUuid: string
+  lifecycleStatus: 'ACTIVE' | 'WITHDRAWN'
+  /** The retained current-version pointer. Not necessarily publicly served. */
+  currentVersionNumber: number
+  /** Draft revision the retained current version was published from. */
+  sourceDraftRevision: number
+  /** Draft revision the product currently carries. */
+  currentDraftRevision: number
+  /** `currentDraftRevision > sourceDraftRevision`: saved edits are not published yet. */
+  hasUnpublishedChanges: boolean
+  firstPublishedAt: string
+  currentPublishedAt: string
+  /** Null while the passport is withdrawn: no public surface is available. */
+  publicUrl: string | null
+  qrDownloadUrl: string | null
+  pdfDownloadUrl: string | null
+}
+
+/**
  * The version-history payload: passport metadata plus every retained version.
  *
- * The passport block describes the *current* publication, so the page can label history
- * honestly ("the public URL currently shows vM") without a second request.
+ * The passport block describes the passport's lifecycle state and its retained current
+ * version, so the page can label history honestly without a second request — including
+ * the case where the passport is withdrawn and nothing is publicly served.
  */
 export type PassportVersionsResponse = {
-  passport: PassportListItem
+  passport: PassportHistorySummary
   versions: PassportVersionListItem[]
 }
 

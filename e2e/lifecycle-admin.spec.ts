@@ -516,3 +516,67 @@ test.describe('Company settings', () => {
     expect(restored.status()).toBe(200)
   })
 })
+
+test.describe('Withdrawn Passport history', () => {
+  test('shows retained history without advertising dead public actions', async ({
+    page,
+    request,
+  }) => {
+    const categoryId = await categoryIdFor(request, await tokenFor(request, E2E_ADMIN_EMAIL))
+    const cover = await upload(
+      request,
+      await tokenFor(request, E2E_ADMIN_EMAIL),
+      's6-withdrawn-cover.png',
+    )
+    const name = `Stage6 withdrawn history ${Date.now()}`
+    const product = await createProduct(
+      request,
+      await tokenFor(request, E2E_ADMIN_EMAIL),
+      categoryId,
+      name,
+      cover,
+    )
+
+    const published = await request.post(`${API}/products/${product.id}/publish`, {
+      headers: { authorization: `Bearer ${await tokenFor(request, E2E_ADMIN_EMAIL)}` },
+      data: { expectedDraftRevision: product.draftRevision },
+    })
+    expect(published.status()).toBe(200)
+    const publication = await published.json()
+    const passportId = publication.passportId as string
+    const publicUuid = publication.publicUuid as string
+
+    // Delete the product, which withdraws the Passport. The product leaves every list, so
+    // the exact Passport id is the only way back to its retained history.
+    const deleted = await request.delete(`${API}/products/${product.id}`, {
+      headers: { authorization: `Bearer ${await tokenFor(request, E2E_ADMIN_EMAIL)}` },
+    })
+    expect(deleted.status()).toBe(204)
+
+    await signIn(page, E2E_ADMIN_EMAIL)
+    await page.goto(`/passports/${passportId}`)
+
+    // The retained history is reachable and explicit about the lifecycle.
+    await expect(page.getByTestId('history-withdrawn-notice')).toBeVisible()
+    await expect(page.getByTestId('history-withdrawn-notice')).toContainText('withdrawn')
+    await expect(page.getByTestId('history-current-version')).toContainText('v1')
+    await expect(page.getByText('Last published version')).toBeVisible()
+
+    // No public action is advertised, because every one of them now answers 404.
+    await expect(page.getByTestId('history-open-current')).toHaveCount(0)
+    await expect(page.getByTestId('history-qr-download')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Open current Passport' })).toHaveCount(0)
+
+    // Nothing claims the public URL currently serves anything.
+    await expect(page.getByText('The public URL always shows the current version')).toHaveCount(0)
+    await expect(page.getByText('This is what the public URL serves today')).toHaveCount(0)
+    await expect(page.getByText(/The public URL currently shows v/)).toHaveCount(0)
+
+    // The selected retained version still renders from its immutable snapshot.
+    await expect(page.getByTestId('passport-product-name')).toHaveText(name)
+
+    // And the anonymous surface stays closed.
+    expect((await request.get(`${WEB}/passport/${publicUuid}`)).status()).toBe(404)
+    expect((await request.get(`${API}/passport/${publicUuid}/pdf`)).status()).toBe(404)
+  })
+})
