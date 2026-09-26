@@ -22,7 +22,8 @@
     "test": "pnpm -r --if-present test",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "openapi:generate": "pnpm --filter @notarify/api build && node apps/api/scripts/export-openapi.mjs",
-    "openapi:check": "pnpm --filter @notarify/api build && node apps/api/scripts/export-openapi.mjs --check"
+    "openapi:check": "pnpm --filter @notarify/api build && node apps/api/scripts/export-openapi.mjs --check",
+    "test:smoke": "playwright test --config e2e/release-smoke.config.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",

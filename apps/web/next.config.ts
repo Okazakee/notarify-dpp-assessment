@@ -1,37 +1,19 @@
 import type { NextConfig } from 'next'
 
 /**
- * The API origin used to resolve API-relative routes.
+ * The web application configuration.
  *
- * Two origins are possible. The browser reaches the API at `NEXT_PUBLIC_API_URL`, while
- * this rewrite runs inside the web server, which in a container reaches the API at
- * `INTERNAL_API_URL`. Falling back to the browser origin keeps native development working
- * without either variable being set.
+ * There is deliberately no `rewrites()` here any more. The `/q/:uuid` bridge used to be one,
+ * and Next resolves rewrites during the build: the destination was baked into the routes
+ * manifest, which pinned the container-internal API origin at image-build time. That bridge
+ * now lives in `app/q/[uuid]/route.ts`, where the origin is read per request and native and
+ * container topologies both work.
  */
-const API_URL = (
-  process.env.INTERNAL_API_URL && process.env.INTERNAL_API_URL.length > 0
-    ? process.env.INTERNAL_API_URL
-    : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000')
-).replace(/\/$/, '')
-
 const nextConfig: NextConfig = {
   // Next 16 writes AGENTS.md and CLAUDE.md next to this config on every `next dev`.
   // This repository keeps a single, human-owned instruction file at the root, so the
   // framework-managed copies are disabled rather than regenerated on each run.
   agentRules: false,
-
-  /**
-   * Routes the printed QR target to the API's resolver.
-   *
-   * A QR code encodes `{PUBLIC_APP_ORIGIN}/q/{uuid}`, which is this web origin, but QR
-   * resolution belongs to Nest so that Stage 5 can record a hit in one place without
-   * changing any printed URL. The source is an exact single-segment pattern and the
-   * destination is pinned to the configured API origin, so this bridge cannot proxy
-   * arbitrary paths or hosts.
-   */
-  async rewrites() {
-    return [{ source: '/q/:uuid', destination: `${API_URL}/q/:uuid` }]
-  },
 }
 
 export default nextConfig
