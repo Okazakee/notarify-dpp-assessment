@@ -44,7 +44,7 @@ P0 = required functionality plus the security/testing needed to trust it. P1 = b
 | 6 | Remaining required back-office and lifecycle work: Product DELETE, Users, Settings, and the audit and soft-delete bonuses | Soft delete, audit logs | Every assessment-required route and action exists, is authorized, and is covered |
 | 7 | Docker/Compose completion and testing, migrations, seed, Swagger/OpenAPI, README, architecture document, final E2E, security checks, clean-clone validation and final reconciliation | Unit/integration/E2E evidence consolidated | Reviewer can run it and Cristian can explain critical paths |
 
-Stages 0–6 are complete and merged into `main`. Every application feature the assessment requires now exists, including all nine bonuses: full-text search, Passport versioning, soft delete, audit logs, Redis, pagination and advanced filtering, Passport PDF export, drag-and-drop uploads and automated tests. Stage 7 delivered that delivery work and is implemented on `build/final-delivery`: reviewer packaging, OpenAPI, security scanning and submission documentation.
+Stages 0–6 are complete and merged into `main`. Every application feature the assessment requires now exists, including all nine bonuses: full-text search, Passport versioning, soft delete, audit logs, Redis, pagination and advanced filtering, Passport PDF export, drag-and-drop uploads and automated tests. Stage 7 delivered that work and is merged into `main`: reviewer packaging, OpenAPI, security scanning and submission documentation, with the detailed evidence in [docs/AI-WORKLOG.md](../AI-WORKLOG.md) and the short technical summary in [docs/ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ### Stage 4 milestones
 
