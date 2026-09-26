@@ -53,6 +53,13 @@ export function configureApplication(app: INestApplication): void {
       typeof inbound === 'string' && REQUEST_ID_PATTERN.test(inbound) ? inbound : randomUUID()
     request.requestId = requestId
     response.setHeader('X-Request-Id', requestId)
+
+    // Every API response is dynamic. The public surface already declares this explicitly, and
+    // the authenticated back office is lifecycle-sensitive: a cached projection of a Passport
+    // that has since been withdrawn or republished would be actively misleading. Routes that
+    // set the header themselves set the same value.
+    response.setHeader('Cache-Control', 'no-store')
+
     next()
   })
 
