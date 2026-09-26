@@ -1,0 +1,57 @@
+# Docker build context filter.
+#
+# The images rebuild everything they need from tracked source, so anything that is
+# regenerated inside the build (dependencies, build output) or that is local-only (environment
+# files, reports, private assessment material) is excluded here.
+#
+# Deliberately NOT excluded, because the build needs them:
+#   prisma/                 schema, migrations, migration lock and the seed
+#   fixtures/demo/          the seed's tracked sample files
+#   apps/*/src              application source
+#   *.json / pnpm-lock.yaml / pnpm-workspace.yaml / prisma7.config.ts / tsconfig.base.json
+
+# Version control and local tooling
+.git
+.githooks
+.github
+.vscode
+.idea
+*.swp
+*~
+
+# Dependencies and build output — rebuilt inside the image
+node_modules
+**/node_modules
+apps/api/dist
+apps/web/.next
+apps/web/next-env.d.ts
+coverage
+test-results
+playwright-report
+blob-report
+*.tsbuildinfo
+
+# Local environment files and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.credentials/
+
+# Test and developer tooling that the runtime does not need
+e2e
+apps/api/test
+apps/api/scripts
+
+# Documentation and private assessment material
+docs
+assessment
+Notarify_Fullstack_developer_task.pdf
+*.log
+logs
+tmp
+.tmp

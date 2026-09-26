@@ -1,0 +1,160 @@
+# Reviewer stack for the Notarify Digital Product Passport assessment.
+#
+#   cp .env.example .env
+#   docker compose up --build -d
+#   docker compose run --rm seed
+#
+# then open http://localhost:3001 (web), http://localhost:3000 (API) and
+# http://localhost:3000/docs (Swagger).
+#
+# Design notes that matter to a reviewer:
+#
+# * PostgreSQL and Redis are **not** published to the host. The stack only exposes the API
+#   and the web app. `docker compose exec postgres psql -U notarify -d notarify` reaches the
+#   database when you need it.
+# * The one-shot `migrate` service applies the tracked migrations, and the API waits for it to
+#   finish successfully, so application startup never races schema creation. `migrate dev` is
+#   never used in a container.
+# * The `seed` service is deliberately behind a profile: `docker compose up` does not touch
+#   your data, and you run the seed explicitly when you want it.
+# * Asset bytes live in PostgreSQL, so the single named volume is the complete durable state.
+#   `docker compose down -v` destroys it.
+
+name: notarify-dpp
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notarify}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notarify_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-notarify}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-notarify} -d ${POSTGRES_DB:-notarify}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # A disposable cache. The application is fully functional without it, which is why nothing
+  # waits on Redis to be *usable* beyond starting the container.
+  redis:
+    image: redis:8.10.2-alpine
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot schema application. Reuses the API builder stage, because that is the stage that
+  # has the Prisma CLI.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: builder
+    command:
+      ['pnpm', 'exec', 'prisma', 'migrate', 'deploy', '--config', 'prisma7.config.ts']
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-notarify}:${POSTGRES_PASSWORD:-notarify_local_only}@postgres:5432/${POSTGRES_DB:-notarify}?schema=public
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  # Explicit, repeatable, non-destructive demo data. Behind a profile so `up` never touches
+  # reviewer data: invoke it with `docker compose run --rm seed`.
+  seed:
+    profiles: ['tools']
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: builder
+    command: ['pnpm', 'db:seed']
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-notarify}:${POSTGRES_PASSWORD:-notarify_local_only}@postgres:5432/${POSTGRES_DB:-notarify}?schema=public
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-AdminDemoPassw0rd!}
+      DEMO_EDITOR_PASSWORD: ${DEMO_EDITOR_PASSWORD:-EditorDemoPassw0rd!}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runner
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-notarify}:${POSTGRES_PASSWORD:-notarify_local_only}@postgres:5432/${POSTGRES_DB:-notarify}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env - copy .env.example to .env first}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3001}
+      PUBLIC_APP_ORIGIN: ${PUBLIC_APP_ORIGIN:-http://localhost:3001}
+      REDIS_URL: redis://redis:6379
+      REDIS_CACHE_TTL_SECONDS: ${REDIS_CACHE_TTL_SECONDS:-300}
+      ANALYTICS_MOCK_COUNTRY: ${ANALYTICS_MOCK_COUNTRY:-IT}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # The slim image has no curl, and Node 24 has a global fetch, so the check uses Node.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runner
+      args:
+        # Compiled into the browser bundle, so it must match the published API port.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      # The web server reaches the API inside the Compose network. The browser reaches it at
+      # NEXT_PUBLIC_API_URL; this value never reaches rendered HTML.
+      INTERNAL_API_URL: http://api:3000
+    ports:
+      - '3001:3001'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+volumes:
+  postgres-data:
