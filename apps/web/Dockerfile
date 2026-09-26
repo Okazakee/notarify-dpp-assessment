@@ -53,6 +53,12 @@ COPY --from=builder /app/apps/web/package.json /app/apps/web/package.json
 COPY --from=builder /app/package.json /app/package.json
 
 WORKDIR /app/apps/web
+# The runtime image starts Next's own entry point with node, so no package manager is needed.
+# Removing npm (with its bundled dependency tree) drops the only findings Trivy reports a fix
+# for and removes a package manager from the runtime attack surface.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm
+
 # Run as the unprivileged user the base image already provides.
 USER node
 EXPOSE 3001

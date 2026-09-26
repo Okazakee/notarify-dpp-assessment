@@ -63,6 +63,13 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/package.json ./package.json
 
+# The runtime image never invokes a package manager: the API starts `node dist/src/main.js`
+# directly. Removing npm (with its bundled dependency tree) drops the only findings Trivy
+# reports a fix for and removes a package manager from the runtime attack surface. The build,
+# migration and seed stages keep theirs.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm
+
 # Run as the unprivileged user the base image already provides.
 USER node
 EXPOSE 3000
