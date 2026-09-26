@@ -5,6 +5,8 @@ import { isUUID } from 'class-validator'
 import QRCode from 'qrcode'
 import { assetKindForMime } from '../assets/asset-processing.js'
 import { AssetsService } from '../assets/assets.service.js'
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../audit/audit.actions.js'
+import { AuditService } from '../audit/audit.service.js'
 import { ApiException } from '../common/api-exception.js'
 import type { AppEnvironment } from '../config/configuration.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -99,6 +101,7 @@ export class PublicationService {
     private readonly products: ProductsService,
     private readonly assets: AssetsService,
     private readonly config: ConfigService<AppEnvironment, true>,
+    private readonly audit: AuditService,
   ) {}
 
   async publish(
@@ -106,6 +109,7 @@ export class PublicationService {
     actorId: string,
     productId: string,
     expectedDraftRevision: number,
+    requestId: string | null = null,
   ): Promise<PublicationResult> {
     if (!isUUID(productId)) {
       throw new ApiException(HttpStatus.NOT_FOUND, 'PRODUCT_NOT_FOUND', 'Product not found.')
@@ -321,9 +325,23 @@ export class PublicationService {
           data: { currentVersionId: version.id },
         })
 
-        // No audit row is written here. The audit-log bonus is a separate milestone with
-        // its own event and action policy, so publication does not start it with one
-        // isolated event type.
+        // A new immutable version is a real domain mutation, so its audit row commits with
+        // it. The replay path returns earlier in this transaction, which is what keeps a
+        // repeated publish of an already-published revision from inventing a second
+        // publication event, and a failed or incomplete publish from writing one at all.
+        await this.audit.record(tx, {
+          actorId,
+          entityType: AUDIT_ENTITY_TYPES.PASSPORT,
+          entityId: passportId,
+          action: AUDIT_ACTIONS.PASSPORT_VERSION_PUBLISHED,
+          requestId,
+          safeMetadata: {
+            passportId,
+            versionNumber: version.versionNumber,
+            sourceDraftRevision: expectedDraftRevision,
+          },
+        })
+
         return toResult(
           {
             passportId,

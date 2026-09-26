@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchDashboard } from '../analytics/api'
 import type { DashboardSummary } from '../analytics/types'
 import { type AuthUser, useAuth } from '../auth-context'
-import { LogoutButton } from '../logout-button'
+import { BackOfficeNav } from '../back-office-nav'
 
 const COUNTERS = [
   { key: 'totalProducts', label: 'Total Products', testId: 'dashboard-total-products' },
@@ -84,27 +84,7 @@ export default function DashboardPage() {
               Publication and engagement for your company.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/analytics"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Analytics
-            </Link>
-            <Link
-              href="/products"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Products
-            </Link>
-            <Link
-              href="/"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Workspace
-            </Link>
-            <LogoutButton />
-          </div>
+          <BackOfficeNav />
         </header>
 
         {error !== null ? (

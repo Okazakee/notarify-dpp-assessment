@@ -836,6 +836,7 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     expect(decoded).toBe(`${WEB}/q/${journey.publicUuid}`)
 
     const before = await passportEventCounts(journey.passportId)
+    const auditBeforeReads = await tableCounts()
 
     // The decoded target resolves through the web bridge to the canonical public page.
     const bridged = await request.get(decoded, { maxRedirects: 0 })
@@ -861,9 +862,11 @@ test.describe('Stage 4 acceptance lifecycle', () => {
     expect(afterDownload.qrHits).toBe(afterBridge.qrHits)
     expect(afterDownload.views).toBe(afterBridge.views)
 
-    // Analytics collection is not the audit-log bonus.
+    // Stage 6 audits mutations, not reads. This journey has already saved, published and
+    // republished, so the audit table has grown since the baseline; what matters here is
+    // that none of these public read surfaces added anything.
     const counts = await tableCounts()
-    expect(counts.audit).toBe(journey.auditBaseline)
+    expect(counts.audit).toBe(auditBeforeReads.audit)
   })
 
   test('exposes no public historical Passport or historical PDF route', async ({ request }) => {

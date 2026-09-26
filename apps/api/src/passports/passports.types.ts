@@ -17,8 +17,9 @@ export type PassportProductIdentity = {
 /**
  * One passport row for the back-office list.
  *
- * `status` currently means an active published passport. Withdrawal is not implemented;
- * when it is, it extends this value rather than adding a second writable field.
+ * `status` means an active published passport. Withdrawal is implemented — deleting a
+ * product withdraws its passport — and a withdrawn passport leaves this list rather than
+ * gaining a second writable status field.
  */
 export type PassportListItem = {
   passportId: string

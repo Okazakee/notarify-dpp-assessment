@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { AssetsModule } from '../assets/assets.module.js'
+import { AuditModule } from '../audit/audit.module.js'
 import { AuthModule } from '../auth/auth.module.js'
 import { ProductsModule } from '../products/products.module.js'
 import { PublicationController } from './publication.controller.js'
@@ -11,10 +12,11 @@ import { PublicationService } from './publication.service.js'
  *
  * It consumes `ProductsService` for draft content and `AssetsService` for asset
  * authorization rather than reading those tables itself, so each module stays the owner
- * of its own rules.
+ * of its own rules. `AuditModule` is imported because creating a new immutable version is
+ * an audited mutation whose record must commit with the version itself.
  */
 @Module({
-  imports: [AuthModule, ProductsModule, AssetsModule],
+  imports: [AuthModule, ProductsModule, AssetsModule, AuditModule],
   controllers: [PublicationController],
   providers: [PublicationService],
 })

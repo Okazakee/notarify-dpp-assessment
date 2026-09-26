@@ -242,6 +242,31 @@ Cristian settled these by supplying the Stage 5 instruction; they were previousl
 | Analytics scope boundary | No `AuditEvent` is written by any Stage 5 path; the audit-log bonus remains Stage 6. No queue, worker, scheduler, event bus or telemetry framework was introduced. |
 | Stage 4 evidence superseded | Stage 4.6 proved the public surface recorded nothing before analytics existed. Stage 5 intentionally changes two of those observations — the QR resolver is a scan and a visible page navigation is a view — and the acceptance journey now asserts the current truth per surface instead of global emptiness. The Stage 4 historical result itself is not rewritten. |
 
+### B13. Lifecycle, audit and administration decisions (Stage 6, Cristian decision 2026-09-25)
+
+Cristian settled these by supplying the Stage 6 instruction. The recorded decisions are:
+
+| Decision | Recorded outcome |
+| --- | --- |
+| Delete semantics | `DELETE /products/:id` is Admin-only and a **soft delete**: `Product.deletedAt` and, when a Passport exists, `Passport.withdrawnAt` are set to the same timestamp in one transaction that also appends `PRODUCT_DELETED`. Nothing is physically deleted, and there is no restore, Trash view or undelete endpoint. |
+| Public behaviour after deletion | The uniform safe 404 is preserved on every anonymous surface. A `410 Gone` tombstone was considered in the lifecycle spec and deliberately **not** adopted, because one identical not-found body is the accepted public contract and a distinct tombstone would confirm that a passport existed. |
+| Deleted-product discoverability | Normal list and detail reads exclude deleted products; exact Admin historical inspection of a withdrawn or soft-deleted Passport remains allowed, scoped by company ownership and the retained Passport rather than by active status. Nothing becomes public, and no public historical route exists. |
+| Serial reservation | Because the row remains, `(companyId, serialNumber)` keeps reserving its serial. Deletion never frees a serial. |
+| Analytics on deletion | Raw and daily analytics are retained; active-only surfaces stop counting the withdrawn Passport. No purge. |
+| Audit scope | Audited actions are Product create/update/delete, new Passport version publication, user create/role change/activation/deactivation, and company settings update. Reads, QR_HIT, VIEW, dashboard/analytics reads, cache activity, downloads, Preview and historical reads are not audited. |
+| Audit transactionality | The audit row is written with the mutation's own transaction client, so a failed audit insert rolls the mutation back. An idempotent publish replay writes no publication row because no new version was created. |
+| Audit metadata | A closed vocabulary of changed field names, revision movement, version numbers, ids, role/active before-and-after and revoked-session counts. Never a password, hash, token, cookie, Authorization header, request body, file bytes or arbitrary payload. |
+| Request id | The audit row records the id the HTTP middleware resolved: a bounded, well-formed inbound `x-request-id` is kept for correlation and a fresh id is generated otherwise. It is sanitized correlation data, not a server-generated value in every case, and the documentation says so. |
+| Audit reads | `GET /audit-logs` is Admin-only through the guard chain and company-scoped in the query. Append-only through the application, and explicitly **not** described as cryptographic tamper-proofing. |
+| User administration | Proportional list/create/patch only: no DELETE, no registration, no invitation email, no password reset, no social login. An Admin sets an initial password and communicates it out of band; it is never logged, audited, emailed or returned. |
+| Authorization freshness | Role and activation are re-read from PostgreSQL on every protected request, so a role change takes effect on the target's next request without a new token, and no role claim is added to the JWT. |
+| Deactivation | Disabling a user sets `active = false` and revokes that user's still-active sessions in the same transaction, so it cannot be waited out. Reactivation does not restore a revoked session. |
+| Last active Admin | The last active administrator cannot be removed or disabled, and the rule is concurrency-safe: administrative writes lock the company's user rows before deciding, so two removals that would together leave zero serialize and exactly one commits. Self-demotion or self-disable is allowed only while another active Admin remains. |
+| Settings scope | Company display name and optional logo only. Settings change mutable company state; a published snapshot is immutable, so branding moves only through an explicit republish. No billing, notifications, API keys, custom domains or retention controls. |
+| Company logo | Must be a same-company, `ACCEPTED` image asset with stored content. It is never made public: the public Passport renders the bundled application brand mark, and the UI says so. |
+| Read-only Product view | `/products/:id/view` renders the **current private draft** through the existing `GET /products/:id`, not the published snapshot, and mutates nothing. |
+| Navigation | One shared component renders the six Admin destinations and the first four for an Editor. Hiding a link is presentation only; the API guard chain is authoritative. |
+
 ### C. Unresolved product and policy assumptions
 
 The recommendations below make the schema draft coherent. They are not approvals and must be recorded by a human by the stated gate.

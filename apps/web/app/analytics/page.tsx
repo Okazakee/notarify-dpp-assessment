@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth-context'
-import { LogoutButton } from '../logout-button'
+import { BackOfficeNav } from '../back-office-nav'
 import { fetchAnalytics } from './api'
 import { ANALYTICS_RANGES, type AnalyticsOverview, type AnalyticsRange } from './types'
 
@@ -89,27 +89,7 @@ export default function AnalyticsPage() {
               QR scans and Passport views for your company, reported in UTC.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/dashboard"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/passports"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Product Passports
-            </Link>
-            <Link
-              href="/"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Workspace
-            </Link>
-            <LogoutButton />
-          </div>
+          <BackOfficeNav />
         </header>
 
         {error !== null ? (

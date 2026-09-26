@@ -34,6 +34,12 @@ export class PublicationController {
       )
     }
 
-    return this.publication.publish(actor.companyId, actor.id, id, input.expectedDraftRevision)
+    return this.publication.publish(
+      actor.companyId,
+      actor.id,
+      id,
+      input.expectedDraftRevision,
+      request.requestId ?? null,
+    )
   }
 }

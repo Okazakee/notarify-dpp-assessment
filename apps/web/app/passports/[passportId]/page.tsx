@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiUrl } from '../../api-origin'
 import { useAuth } from '../../auth-context'
-import { LogoutButton } from '../../logout-button'
+import { BackOfficeNav } from '../../back-office-nav'
 import { PassportPresentation } from '../../passport/presentation'
 import { usePassportVersionAssetObjectUrls } from '../../passport/use-asset-object-urls'
 import { describeApiError, ProductApiError } from '../../products/api'
@@ -229,15 +229,7 @@ export default function PassportHistoryPage() {
               Retained immutable versions. The public URL always shows the current version.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/passports"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Product Passports
-            </Link>
-            <LogoutButton />
-          </div>
+          <BackOfficeNav />
         </header>
 
         {state.kind === 'error' ? (

@@ -74,8 +74,9 @@ export class PassportsService {
     this.ensureCompanyId(companyId)
 
     // A passport without a current version is not an active publication and is excluded
-    // rather than rendered as an empty row. Withdrawal is not implemented; `withdrawnAt`
-    // is filtered here so this contract stays correct if it is added later.
+    // rather than rendered as an empty row. Withdrawal **is** implemented now — deleting a
+    // product withdraws its passport — so this filter is what keeps the back-office list
+    // active-only, while exact historical inspection deliberately uses a wider scope.
     const where: Prisma.PassportWhereInput = {
       withdrawnAt: null,
       currentVersionId: { not: null },
@@ -295,12 +296,22 @@ export class PassportsService {
     return new Map(assets.map((asset) => [asset.id, asset.originalName]))
   }
 
+  /**
+   * Resolves a retained Passport for the actor's company.
+   *
+   * This is the gate for exact historical inspection, and it deliberately scopes by
+   * company ownership **only**. The normal passport list stays active-only, but an Admin
+   * must still be able to inspect the retained immutable versions of a Passport whose
+   * product was soft-deleted or whose Passport was withdrawn — that history is exactly
+   * what the soft-delete policy keeps. Nothing here becomes public: the anonymous surface
+   * resolves its own active version and never calls this method.
+   */
   private async findCompanyPassport(
     passportId: string,
     companyId: string,
   ): Promise<PassportListRow> {
     const passport = await this.prisma.passport.findFirst({
-      where: { id: passportId, withdrawnAt: null, product: { companyId, deletedAt: null } },
+      where: { id: passportId, product: { companyId } },
       select: PASSPORT_LIST_SELECT,
     })
     if (passport === null) {

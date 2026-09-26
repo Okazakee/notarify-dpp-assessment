@@ -4,6 +4,9 @@ import { isUUID } from 'class-validator'
 import { AnalyticsService } from '../analytics/analytics.service.js'
 import { assetKindForMime } from '../assets/asset-processing.js'
 import { AssetsService } from '../assets/assets.service.js'
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../audit/audit.actions.js'
+import { AuditService } from '../audit/audit.service.js'
+import type { AuditContext } from '../audit/audit.types.js'
 import { ApiException } from '../common/api-exception.js'
 import type { AppEnvironment } from '../config/configuration.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -102,6 +105,22 @@ type MutationTransaction = Prisma.TransactionClient
 
 export type { MutationTransaction }
 
+/**
+ * The bounded field vocabulary an audit row records.
+ *
+ * It is derived from the validated DTO instance rather than from a raw request body, so
+ * the names are a closed set the reader already knows, and it counts only the properties
+ * the caller actually supplied — an omitted optional field arrives as `undefined`, while
+ * an explicit `null` is a real change and is kept. The excluded key is the concurrency
+ * token, which is recorded separately as revision movement.
+ */
+function changedFieldsFrom(input: object, exclude: string[] = []): string[] {
+  return Object.entries(input)
+    .filter(([key, value]) => value !== undefined && !exclude.includes(key))
+    .map(([key]) => key)
+    .sort()
+}
+
 type ScalarProductFields = Pick<
   CreateProductDto,
   | 'name'
@@ -120,6 +139,7 @@ export class ProductsService {
     private readonly assets: AssetsService,
     private readonly config: ConfigService<AppEnvironment, true>,
     private readonly analytics: AnalyticsService,
+    private readonly audit: AuditService,
   ) {}
 
   async listCategories(): Promise<Array<{ id: string; stableCode: string; name: string }>> {
@@ -129,7 +149,8 @@ export class ProductsService {
     })
   }
 
-  async create(companyId: string, input: CreateProductDto): Promise<ProductDetail> {
+  async create(context: AuditContext, input: CreateProductDto): Promise<ProductDetail> {
+    const companyId = context.companyId
     this.ensureCompanyId(companyId)
     this.validateInputDates(input)
     this.validateNestedInput(input)
@@ -187,6 +208,19 @@ export class ProductsService {
         if (!result) {
           throw this.productNotFound()
         }
+
+        // The audit row commits with the product it describes, so a created product can
+        // never exist without its record. Metadata names the sections supplied rather than
+        // echoing the payload.
+        await this.audit.record(tx, {
+          actorId: context.actorId,
+          entityType: AUDIT_ENTITY_TYPES.PRODUCT,
+          entityId: product.id,
+          action: AUDIT_ACTIONS.PRODUCT_CREATED,
+          requestId: context.requestId,
+          safeMetadata: { changedFields: changedFieldsFrom(input) },
+        })
+
         return result
       })
 
@@ -280,7 +314,8 @@ export class ProductsService {
     }
   }
 
-  async update(companyId: string, id: string, input: PatchProductDto): Promise<ProductDetail> {
+  async update(context: AuditContext, id: string, input: PatchProductDto): Promise<ProductDetail> {
+    const companyId = context.companyId
     this.ensureCompanyId(companyId)
     this.ensureProductId(id)
     if (!Number.isInteger(input.expectedDraftRevision) || input.expectedDraftRevision < 0) {
@@ -372,12 +407,86 @@ export class ProductsService {
             ? 0
             : ((await this.analytics.totalViewsByPassport([passportId], tx)).get(passportId) ?? 0)
 
+        // The revision claim and the audit row are in this transaction, so a stale conflict
+        // and a rolled-back save both leave zero audit rows.
+        await this.audit.record(tx, {
+          actorId: context.actorId,
+          entityType: AUDIT_ENTITY_TYPES.PRODUCT,
+          entityId: id,
+          action: AUDIT_ACTIONS.PRODUCT_UPDATED,
+          requestId: context.requestId,
+          safeMetadata: {
+            changedFields: changedFieldsFrom(input, ['expectedDraftRevision']),
+            draftRevisionBefore: input.expectedDraftRevision,
+            draftRevisionAfter: claimed[0]?.draftRevision ?? input.expectedDraftRevision + 1,
+          },
+        })
+
         return { product: result, totalViews }
       })
 
       return this.mapDetail(saved.product, saved.totalViews)
     } catch (error) {
       this.handleMutationError(error, input.serialNumber)
+    }
+  }
+
+  /**
+   * Soft-deletes a product and withdraws its published Passport in one transaction.
+   *
+   * Nothing is physically removed: the product row, its nested draft rows, the Passport,
+   * every immutable version, its retained asset references, the analytics history and the
+   * Assets all stay. `deletedAt` and `withdrawnAt` are set to the same server timestamp and
+   * the audit row commits with them, so no reader can observe a deleted product whose
+   * Passport is still public, or a withdrawal with no deletion.
+   *
+   * The product row is locked `FOR UPDATE` first, which is the same discipline publication
+   * uses, so a delete composes with a concurrent draft save or publish instead of
+   * interleaving with one. An already-deleted product is indistinguishable from a missing
+   * one and is never mutated again.
+   */
+  async delete(context: AuditContext, id: string): Promise<void> {
+    const companyId = context.companyId
+    this.ensureCompanyId(companyId)
+    this.ensureProductId(id)
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRaw<Array<{ deletedAt: Date | null }>>(Prisma.sql`
+          SELECT "deletedAt"
+          FROM "Product"
+          WHERE "id" = ${id}::uuid
+            AND "companyId" = ${companyId}::uuid
+          FOR UPDATE
+        `)
+
+        const current = locked[0]
+        if (current === undefined || current.deletedAt !== null) {
+          throw this.productNotFound()
+        }
+
+        const now = new Date()
+        const passport = await tx.passport.findUnique({
+          where: { productId: id },
+          select: { id: true, withdrawnAt: true },
+        })
+
+        await tx.product.update({ where: { id }, data: { deletedAt: now } })
+        if (passport !== null && passport.withdrawnAt === null) {
+          await tx.passport.update({ where: { id: passport.id }, data: { withdrawnAt: now } })
+        }
+
+        await this.audit.record(tx, {
+          actorId: context.actorId,
+          entityType: AUDIT_ENTITY_TYPES.PRODUCT,
+          entityId: id,
+          action: AUDIT_ACTIONS.PRODUCT_DELETED,
+          requestId: context.requestId,
+          safeMetadata: { hadPublishedPassport: passport !== null },
+        })
+      })
+    } catch (error) {
+      this.handleMutationError(error, null)
     }
   }
 

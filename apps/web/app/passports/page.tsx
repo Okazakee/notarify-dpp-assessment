@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { apiUrl } from '../api-origin'
 import { useAuth } from '../auth-context'
-import { LogoutButton } from '../logout-button'
+import { BackOfficeNav } from '../back-office-nav'
 import { describeApiError } from '../products/api'
 import { fetchPassportList } from './api'
 import type { PassportListResponse } from './types'
@@ -115,27 +115,7 @@ export default function PassportsPage() {
               What is currently published. Draft edits stay private until you republish.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/analytics"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Analytics
-            </Link>
-            <Link
-              href="/products"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Products
-            </Link>
-            <Link
-              href="/"
-              className="btn btn-ghost btn-sm focus:outline-2 focus:outline-offset-2 focus:outline-primary"
-            >
-              Workspace
-            </Link>
-            <LogoutButton />
-          </div>
+          <BackOfficeNav />
         </header>
 
         {error !== null ? (
