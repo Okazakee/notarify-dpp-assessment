@@ -92,18 +92,19 @@ complete draft A → Preview A → publish v1 → public/QR/PDF/history = A,v1
 | Sequential PDF image conversion and no HTTP self-fetch in PDF generation | 4.5 | source review of `passport-pdf.service.ts` and `passport-pdf-document.ts` (no benchmark claim) | PASS (source-reviewed) | no |
 | Long published content, long identifiers and multi-page PDF | 4.3/4.5 | acceptance #9; `passport-pdf.e2e-spec.ts` | PASS | no |
 
-## Manual evidence still required
+## Manual evidence
 
-These are **not** claimed by this milestone and must not be reported as passed until
-Cristian actually performs them:
+When this milestone was recorded these were **not** claimed, and were not to be reported as
+passed until Cristian actually performed them. He performed four of the five on the deployed
+application on 2026-09-26; the human source-code review remains deferred:
 
 | Item | Status |
 | --- | --- |
-| Physical handset scan of the printed QR code | **NOT MANUALLY VALIDATED** — the automated chain (decode → 302 → public page) is proven; a real phone scan is not |
-| Cristian's manual UI walkthrough (public page, editor, Preview, back office) | **NOT PERFORMED** |
+| Physical handset scan of the printed QR code | **PERFORMED** by Cristian on 2026-09-26 against the deployed application |
+| Cristian's manual UI walkthrough (public page, editor, Preview, back office) | **PERFORMED** by Cristian on 2026-09-26 against the deployed application |
 | Human source-code review | **DEFERRED** until the complete project is built |
-| Printed/on-screen review of the exported PDF | **NOT PERFORMED** |
-| Deployment/VPS validation | **NOT PERFORMED** — Stage 7 owns it |
+| Printed/on-screen review of the exported PDF | **PERFORMED** by Cristian on 2026-09-26 against the deployed application |
+| Deployment/VPS validation | **PERFORMED** by Cristian on 2026-09-26 on a real VPS host |
 
 ## Known limitations
 

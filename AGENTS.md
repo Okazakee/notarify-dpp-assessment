@@ -18,7 +18,7 @@ Assessment work for Notarify: a Digital Product Passport application. Read this 
 
 **Stage 4.5 (Passport PDF export) is merged into `main`.**
 
-**Stage 4.6 (full Stage 4 acceptance and regression) is merged into `main`.** The evidence map is [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md): one cross-milestone lifecycle journey plus the existing focused suites prove Stage 4 as one subsystem, while the physical handset scan, Cristian's manual UI walkthrough and human source-code review remain explicitly unvalidated manual items. Stage 4.6 added no production runtime change.
+**Stage 4.6 (full Stage 4 acceptance and regression) is merged into `main`.** The evidence map is [docs/STAGE4-ACCEPTANCE.md](docs/STAGE4-ACCEPTANCE.md): one cross-milestone lifecycle journey plus the existing focused suites prove Stage 4 as one subsystem, while the physical handset scan, Cristian's manual UI walkthrough and human source-code review were unvalidated at that time; the handset scan and the manual UI walkthrough were performed later on the deployed application (2026-09-26), and human source-code review remains deferred. Stage 4.6 added no production runtime change.
 
 **Stage 5 (analytics, dashboard, Total Views and the Redis cache bonus) is merged into `main`.**
 

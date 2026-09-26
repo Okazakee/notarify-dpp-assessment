@@ -980,3 +980,19 @@ The documentation was corrected to say precisely what the integrity value covers
 **Not validated / deferred.** Cristian's manual UI walkthrough, human source-code review, a physical handset QR scan, a printed or on-screen PDF review, and deployment to a real host all remain outstanding, as recorded in the Stage 7 round. This gate integrated accepted work and did not perform them.
 
 **Result.** Stage 7 is merged into `main`. The repository is at its final submission state: every application feature and all nine bonuses are implemented, the reviewer path is reproducible from tracked content alone, and the remaining outstanding items are human validation and real deployment. No tag exists.
+
+## 2026-09-26 — Post-merge manual validation record (Cristian)
+
+**Scope.** Record manual evidence that became available after Stage 7 was merged. This is a documentation-only correction on `main`: no source, dependency, Prisma schema or migration changed. The merged milestone rounds keep their own records; this round exists because a record that was true when written is not rewritten silently after acceptance.
+
+**AI participation.** Pi made this documentation change only. Pi did **not** perform the validation described here and does not report it as its own. No subagent, and no GPT or Astra model, was involved.
+
+**Human review, in its three separate parts.**
+
+- **Decision/scope review** — Cristian, throughout the project; Stage 7 was accepted at `c230471`.
+- **Manual validation** — **performed by Cristian on 2026-09-26 against a real deployed host (VPS)**: the manual UI walkthrough (public page, editor, Preview, back office), a physical handset scan of the printed QR code, and a printed/on-screen review of the exported PDF. He reported the application working, with no defect affecting any assessment-relevant path. This closes the four manual items that earlier rounds recorded as outstanding.
+- **Human source-code review** — **still deferred**. It is the only manual item left outstanding.
+
+**Evidence hold.** These are statements by the deployer, not commands run by Pi, and no automated output backs them; they are recorded as the human validation they are. Automated evidence remains where the milestone rounds put it. The deployment used Cristian's own host and configuration, which is not part of this repository, so nothing here is reproducible from the repository alone — the packaged stack in the repository remains the reproducible path.
+
+**Result.** Four of the five manual items are now recorded as performed, and human source-code review remains the only one outstanding. No application, dependency, schema or migration change accompanied this record.

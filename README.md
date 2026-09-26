@@ -284,8 +284,9 @@ Deliberately out of scope, or genuinely unfinished:
   a production reverse proxy would typically add them.
 * Reverse-proxy trust is not configured: without it the recorded analytics address is the
   proxy's. Trusted-proxy configuration belongs with the real deployment.
-* Human review status: Cristian's manual UI walkthrough, a physical phone QR scan, a printed
-  PDF review and human source-code review are **outstanding** — see below.
+* Human review status: Cristian performed the manual UI walkthrough, a physical phone QR scan
+  and a printed/on-screen PDF review on the deployed application on 2026-09-26. **Human
+  source-code review remains deferred** — see below.
 
 ## AI assistance
 
@@ -295,6 +296,9 @@ ChatGPT orchestration layer used for scope and dependency research. AI review is
 review. The per-round record — scope, decisions, findings, validation evidence and what was
 left unvalidated — is [docs/AI-WORKLOG.md](docs/AI-WORKLOG.md).
 
-**Not yet performed by a human:** the manual UI walkthrough, a physical handset scan of a
-printed QR code, a printed/on-screen visual review of the PDF, human source-code review, and
-deployment to a real host.
+**Performed manually (Cristian, 2026-09-26), on a real host:** deployment to a VPS, the manual
+UI walkthrough, a physical handset scan of the printed QR code, and a printed/on-screen visual
+review of the exported PDF. He reported the application working, with no defect affecting any
+assessment-relevant path.
+
+**Still not performed by a human:** human source-code review.
