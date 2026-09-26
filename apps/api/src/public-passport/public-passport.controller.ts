@@ -12,6 +12,7 @@ import {
   Res,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { ApiTags } from '@nestjs/swagger'
 import { AnalyticsIngestLimiter } from '../analytics/analytics-ingest-limiter.service.js'
 import {
   extractAnalyticsMetadata,
@@ -60,6 +61,7 @@ const QR_RECORD_BUDGET_MS = 250
  * is content that was explicitly published. Authorization is per request and derived
  * from the current immutable published version, never from the request itself.
  */
+@ApiTags('public-passport')
 @Controller()
 export class PublicPassportController {
   private readonly logger = new Logger(PublicPassportController.name)

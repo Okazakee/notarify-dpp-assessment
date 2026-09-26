@@ -1,4 +1,5 @@
 import { Controller, Get, HttpStatus, Query, Req, UseGuards } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
 import { Roles } from '../auth/roles.decorator.js'
@@ -21,6 +22,7 @@ import { ListAuditLogsQueryDto } from './dto/list-audit-logs-query.dto.js'
  * this projection adds the actor summary a reader needs without exposing credential
  * state, sessions or tokens.
  */
+@ApiTags('audit-logs')
 @Controller('audit-logs')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.ADMIN)

@@ -12,6 +12,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import type { AuditContext } from '../audit/audit.types.js'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
@@ -32,6 +33,7 @@ import { ProductsService } from './products.service.js'
  * `RolesGuard` runs after `AccessTokenGuard` and refuses an Editor before any ownership or
  * existence query, so the refusal cannot be used to probe for a product.
  */
+@ApiTags('products')
 @Controller('products')
 @UseGuards(AccessTokenGuard, RolesGuard)
 export class ProductsController {

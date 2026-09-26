@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpStatus, Patch, Req, UseGuards } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import type { AuditContext } from '../audit/audit.types.js'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
@@ -16,6 +17,7 @@ import type { CompanySettings } from './settings.types.js'
  * Admin-only through the guard chain, and always scoped to the actor's company: the
  * request body never carries a company id, so there is nothing to tamper with.
  */
+@ApiTags('settings')
 @Controller('settings')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.ADMIN)

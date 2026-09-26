@@ -10,6 +10,9 @@ allowBuilds:
   '@node-rs/argon2': true
   '@parcel/watcher': false
   unrs-resolver: false
+  # Transitive from swagger-ui-dist. It is install-time telemetry, not a build step,
+  # so it is explicitly denied rather than approved: Swagger works without it.
+  '@scarf/scarf': false
 
 # pnpm's supply-chain policy refuses packages published very recently. NestJS
 # 12.0.4 ships on the same day it is pinned here, so it is excluded deliberately.

@@ -13,6 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
+import { ApiTags } from '@nestjs/swagger'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
 import { ApiException } from '../common/api-exception.js'
@@ -22,6 +23,7 @@ import { PDF_MIME_TYPE, UPLOAD_MAX_BYTES } from './asset-processing.js'
 import { AssetsService } from './assets.service.js'
 import { UploadExceptionFilter } from './upload-exception.filter.js'
 
+@ApiTags('assets')
 @Controller('assets')
 @UseGuards(AccessTokenGuard)
 @UseFilters(UploadExceptionFilter)

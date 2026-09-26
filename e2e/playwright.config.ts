@@ -15,6 +15,9 @@ const WEB_PORT = 3001
  */
 export default defineConfig({
   testDir: '.',
+  // The packaged-application smoke suite has its own configuration (`release-smoke.config.ts`)
+  // because it drives a running Compose stack instead of starting the native servers.
+  testIgnore: 'release-smoke.spec.ts',
   fullyParallel: false,
   workers: 1,
   reporter: [['list']],

@@ -14,7 +14,8 @@
       "!**/dist",
       "!**/coverage",
       "!**/next-env.d.ts",
-      "!pnpm-lock.yaml"
+      "!pnpm-lock.yaml",
+      "!docs/openapi.json"
     ]
   },
   "formatter": {

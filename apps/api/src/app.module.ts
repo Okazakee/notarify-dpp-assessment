@@ -6,6 +6,7 @@ import { AuditModule } from './audit/audit.module.js'
 import { AuthModule } from './auth/auth.module.js'
 import { ApiExceptionFilter } from './common/api-exception.js'
 import { ValidatedConfigModule } from './config/config.module.js'
+import { HealthModule } from './health/health.module.js'
 import { PassportsModule } from './passports/passports.module.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { ProductsModule } from './products/products.module.js'
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module.js'
     PassportsModule,
     UsersModule,
     SettingsModule,
+    HealthModule,
   ],
   providers: [
     {

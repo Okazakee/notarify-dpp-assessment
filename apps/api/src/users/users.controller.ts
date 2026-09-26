@@ -11,6 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import type { AuditContext } from '../audit/audit.types.js'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
@@ -31,6 +32,7 @@ import type { UserListResponse, UserSummary } from './users.types.js'
  * so an Editor receives a uniform 403 before any company or existence query runs. Hiding
  * the navigation item is presentation only; this is the rule.
  */
+@ApiTags('users')
 @Controller('users')
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles(UserRole.ADMIN)

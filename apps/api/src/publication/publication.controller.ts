@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Param, Post, Req, UseGuards } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
 import { ApiException } from '../common/api-exception.js'
@@ -13,6 +14,7 @@ import type { PublicationResult } from './publication.types.js'
  * `POST /products/{id}/publish` shape is preserved, while the transaction itself is
  * owned by `PublicationModule` rather than by the catalog module.
  */
+@ApiTags('publication')
 @Controller('products')
 @UseGuards(AccessTokenGuard)
 export class PublicationController {
