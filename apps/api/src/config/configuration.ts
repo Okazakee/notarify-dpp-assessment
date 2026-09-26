@@ -12,6 +12,7 @@ export type AppEnvironment = {
   PUBLIC_APP_ORIGIN: string
   REDIS_CACHE_TTL_SECONDS: number
   REDIS_URL?: string
+  SWAGGER_ENABLED: boolean
 }
 
 /** The country recorded on runtime analytics events. Deliberately mocked, never inferred. */
@@ -161,6 +162,19 @@ export function validateEnvironment(environment: Record<string, unknown>): AppEn
     redisCacheTtlSeconds = parsed
   }
 
+  // Interactive API documentation. Enabled outside production so a reviewer can use
+  // Swagger UI locally, and disabled in production unless the deployment deliberately opts
+  // in: an interactive console should never be exposed by accident.
+  const rawSwagger = environment.SWAGGER_ENABLED
+  let swaggerEnabled = nodeEnvironment !== 'production'
+  if (typeof rawSwagger === 'string' && rawSwagger.trim().length > 0) {
+    const value = rawSwagger.trim().toLowerCase()
+    if (value !== 'true' && value !== 'false') {
+      throw new Error('SWAGGER_ENABLED must be true or false')
+    }
+    swaggerEnabled = value === 'true'
+  }
+
   return {
     ACCESS_TOKEN_TTL_SECONDS: accessTokenTtlSeconds,
     ANALYTICS_MOCK_COUNTRY: mockCountry,
@@ -170,6 +184,7 @@ export function validateEnvironment(environment: Record<string, unknown>): AppEn
     NODE_ENV: nodeEnvironment,
     PUBLIC_APP_ORIGIN: publicAppOrigin,
     REDIS_CACHE_TTL_SECONDS: redisCacheTtlSeconds,
+    SWAGGER_ENABLED: swaggerEnabled,
     ...(redisUrlValue === undefined ? {} : { REDIS_URL: redisUrlValue }),
     ...(typeof environment.PORT === 'string' ? { PORT: environment.PORT } : {}),
   }

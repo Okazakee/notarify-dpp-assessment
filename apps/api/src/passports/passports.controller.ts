@@ -1,4 +1,5 @@
 import { Controller, Get, HttpStatus, Param, Query, Req, Res, UseGuards } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import { PDF_MIME_TYPE } from '../assets/asset-processing.js'
 import type { AuthenticatedRequest } from '../auth/access-token.guard.js'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
@@ -28,6 +29,7 @@ import type {
  * purpose. Nothing here is reachable without a session, and nothing there becomes
  * role-aware.
  */
+@ApiTags('passports')
 @Controller('passports')
 @UseGuards(AccessTokenGuard, RolesGuard)
 export class PassportsController {

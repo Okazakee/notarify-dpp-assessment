@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { ApiTags } from '@nestjs/swagger'
 import { ApiException } from '../common/api-exception.js'
 import type { CookieOptions, HttpResponse, ParsedRequest } from '../common/http-types.js'
 import type { AppEnvironment } from '../config/configuration.js'
@@ -22,6 +23,7 @@ import { AuthService } from './auth.service.js'
 type Request = ParsedRequest
 type Response = HttpResponse
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(

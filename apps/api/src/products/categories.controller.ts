@@ -1,7 +1,9 @@
 import { Controller, Get, UseGuards } from '@nestjs/common'
+import { ApiTags } from '@nestjs/swagger'
 import { AccessTokenGuard } from '../auth/access-token.guard.js'
 import { ProductsService } from './products.service.js'
 
+@ApiTags('products')
 @Controller('categories')
 @UseGuards(AccessTokenGuard)
 export class CategoriesController {

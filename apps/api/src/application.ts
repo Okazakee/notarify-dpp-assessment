@@ -7,12 +7,14 @@ import {
   ValidationPipe,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { SwaggerModule } from '@nestjs/swagger'
 import { AnalyticsQueryDto } from './analytics/dto/analytics-query.dto.js'
 import { ViewEventDto } from './analytics/dto/view-event.dto.js'
 import { ListAuditLogsQueryDto } from './audit/dto/list-audit-logs-query.dto.js'
 import { ApiException } from './common/api-exception.js'
 import type { HttpResponse, ParsedRequest } from './common/http-types.js'
 import type { AppEnvironment } from './config/configuration.js'
+import { buildOpenApiDocument } from './openapi.js'
 import { ListPassportsQueryDto } from './passports/dto/list-passports-query.dto.js'
 import { CreateProductDto } from './products/dto/create-product.dto.js'
 import { ListProductsQueryDto } from './products/dto/list-products-query.dto.js'
@@ -136,4 +138,12 @@ export function configureApplication(app: INestApplication): void {
       whitelist: true,
     }),
   )
+
+  // Interactive API documentation, gated by the validated SWAGGER_ENABLED flag. It defaults
+  // to enabled outside production and disabled in production, so an interactive console is
+  // never exposed on a deployment by accident. The document is the same one that
+  // `pnpm openapi:generate` writes to docs/openapi.json.
+  if (config.getOrThrow<boolean>('SWAGGER_ENABLED')) {
+    SwaggerModule.setup('docs', app, buildOpenApiDocument(app), { jsonDocumentUrl: 'docs-json' })
+  }
 }
