@@ -898,7 +898,7 @@ The documentation was corrected to say precisely what the integrity value covers
 
 **Not validated / deferred.** Cristian's manual UI validation, human source-code review, a physical phone QR scan, a printed PDF review and deployment validation remain outstanding. The last-Admin race is covered by an integration test against real PostgreSQL, but a genuinely simultaneous pair of HTTP requests is timing-dependent and is not claimed as a deterministic reproduction.
 
-**Result.** Stage 6 is implemented and locally validated on `build/lifecycle-admin-audit`; it awaits Cristian's decision and has not been merged. Stage 7 has not been started.
+**Result.** Stage 6 is implemented and locally validated on `build/lifecycle-admin-audit`. It was later accepted and merged into `main`; see the Gate 8 round below. Stage 7 has not been started.
 
 ## 2026-09-25 — Stage 6 Gate 7 correction: lifecycle-truthful Passport history
 
@@ -917,3 +917,21 @@ The documentation was corrected to say precisely what the integrity value covers
 **Not validated / deferred.** Unchanged from the Stage 6 round: Cristian's manual UI validation, human source-code review, a physical phone QR scan, a printed PDF review and deployment validation remain outstanding. The nullable `pdfDownloadUrl` is asserted at the API level but is not rendered anywhere in the history UI, so it has no UI coverage.
 
 **Result.** The history surface now distinguishes retained publication history from current public availability. The Stage 6 single-commit deviation recorded in the previous round is unchanged and was not rewritten. The correction is on the branch and unmerged; Stage 7 has not been started.
+
+## 2026-09-25 — Stage 6 integration (Gate 8)
+
+**Scope.** Integrate Cristian's accepted `build/lifecycle-admin-audit` tip `be7500e951d501c6cc1117657dad0db1e9cc9c48` into `main` using the single-push Gate 8 workflow adopted on current `main`: local `--no-ff` merge, local merged-state reconciliation committed separately, one push carrying both commits, one authoritative final-main CI run, ancestry proof, then branch deletion. No Stage 7 work, and no schema, migration, dependency or lockfile change.
+
+**AI participation.** Pi performed the pre-merge truth check, the local merge, the documentation reconciliation, the single push, the CI gate and the branch cleanup on the `opencode-go/deepseek-v4.1-flash` route. No subagent was used in this Gate 8 round and no GPT or Astra model was invoked; the read-only DeepSeek reviews recorded in the Stage 6 and correction rounds already ran against the accepted diff.
+
+**Human review.** Decision/scope review: Cristian explicitly approved the exact accepted tip for a `--no-ff` merge and defined the preserve list. Manual validation: not performed. Source-code review: still deferred until the complete project is built.
+
+**Decisions / work performed.** No product or architecture decision changed. Cristian's acceptance is recorded: Product DELETE, the soft-delete bonus, Passport withdrawal, the audit-log bonus, Users at the approved proportional scope, Settings, the read-only Product view, the final Product-table actions, the six-item Admin navigation and the lifecycle-truthful retained history are all accepted, and the original Stage 6 implementation landing as one large commit rather than several logical commits remains recorded as a deviation — history was not rewritten to split it. Fetched origin and required `origin/main` at `734cd6b753ca1946c78de4025050104b40060ce7`, `origin/build/lifecycle-admin-audit` at the accepted tip, a clean worktree, zero unexpected divergence (0 behind / 2 ahead) and exactly the two expected commits. Required CI run `36237621934` to have completed successfully with `head_sha` equal to the accepted tip; the earlier run `36235761757` on `c1c3a70` is historical evidence only. Switched to synchronized `main` and merged locally with `git merge --no-ff build/lifecycle-admin-audit` as `21f916f7d7c3d28e032287fd0a4eb69d6b263c2f` (parents: previous main and the accepted tip). While `main` was still unpushed, reconciled the present-state documentation — `AGENTS.md`, `README.md`, the roadmap, the decisions record and this log — and committed that separately, then pushed `main` once carrying both commits.
+
+**Findings / rejected approaches.** Six current-state statements still described Stage 6 as unmerged or as remaining work, and one decisions cell still called the audit bonus a Stage 6 obligation rather than a delivered one; the Stage 6 paragraph in `AGENTS.md` had also been concatenated with the Stage 5 paragraph and was split. Historical worklog rounds that truthfully said their branch awaited a decision were left intact. Rejected: pushing the merge commit on its own, squashing or rewriting `c1c3a70`, treating branch CI as final-main CI, deleting the branch before the final-main run was green, and adding `[skip ci]`, a paths-ignore rule or a docs-only CI exception.
+
+**Validation evidence.** Accepted branch CI run `36237621934` succeeded on exact tip `be7500e`. Merge commit `21f916f7d7c3d28e032287fd0a4eb69d6b263c2f` has exactly two parents. The single final-main CI run after the reconciliation is reported in the Gate 8 completion report rather than stored here.
+
+**Not validated / deferred.** Cristian's manual UI walkthrough, human source-code review, a physical phone QR scan, a printed/on-screen PDF review and deployment/VPS validation remain outstanding, and are now the only items between this repository and Stage 7.
+
+**Result.** Stage 6 is merged into `main`: every application feature the assessment requires, including all nine bonuses, is implemented. Stage 7 has not been started.
