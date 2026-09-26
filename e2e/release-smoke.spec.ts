@@ -153,6 +153,8 @@ test('packaged stack serves the reviewer journey end to end', async ({
   await page.goto('/passports')
   await expect(page.getByRole('row').filter({ hasText: BOTTLE })).toHaveCount(1)
   const passportRow = page.getByRole('row').filter({ hasText: BOTTLE })
+  const historyHref = await passportRow.getByTestId('version-history').getAttribute('href')
+  expect(historyHref).toBeTruthy()
   await passportRow.getByTestId('version-history').click()
   await expect(page.getByRole('heading', { name: 'Passport version history' })).toBeVisible()
   await expect(page.getByTestId('history-current-version')).toContainText('v1')
@@ -166,27 +168,43 @@ test('packaged stack serves the reviewer journey end to end', async ({
   await expect(page.locator('#company-display-name')).toHaveValue('Demo Notarify Company')
   await expect(page.getByTestId('audit-table')).toBeVisible()
 
-  // ---- withdraw a published product and prove public unavailability --------------------
-  const stoolUrl = await publishFromEditor(page, STOOL)
-  const stoolUuid = stoolUrl.split('/').pop() as string
-  expect((await request.get(`${API}/passport/${stoolUuid}`)).status()).toBe(200)
-
+  // ---- withdraw the published Passport and prove public unavailability ------------------
+  // The seeded draft is the complete fixture, so it is the one that can be published and
+  // then withdrawn; the second product exists for list and filter demonstration only.
   await page.goto('/products')
-  const stoolRow = page.getByRole('row').filter({ hasText: STOOL })
-  await stoolRow.getByTestId('product-delete').click()
+  const bottleRow = page.getByRole('row').filter({ hasText: BOTTLE })
+  await bottleRow.getByTestId('product-delete').click()
   await expect(page.getByTestId('product-delete-dialog')).toBeVisible()
   await page.getByTestId('product-delete-confirm').click()
   await expect(page.getByTestId('product-notice')).toContainText('Deleted')
-  await expect(page.getByRole('row').filter({ hasText: STOOL })).toHaveCount(0)
+  await expect(page.getByRole('row').filter({ hasText: BOTTLE })).toHaveCount(0)
 
-  // The withdrawn Passport keeps its retained history but every public surface is gone.
+  // Every anonymous surface for the withdrawn Passport is gone…
   for (const path of [
-    `/passport/${stoolUuid}`,
-    `/passport/${stoolUuid}/qr.png`,
-    `/passport/${stoolUuid}/pdf`,
-    `/q/${stoolUuid}`,
+    `/passport/${publicUuid}`,
+    `/passport/${publicUuid}/qr.png`,
+    `/passport/${publicUuid}/pdf`,
+    `/q/${publicUuid}`,
   ]) {
     const response = await request.get(path, { maxRedirects: 0 })
     expect([path, response.status()]).toEqual([path, 404])
   }
+
+  // …the active-only list no longer offers it…
+  await page.goto('/passports')
+  await expect(page.getByRole('row').filter({ hasText: BOTTLE })).toHaveCount(0)
+
+  // …and the retained history survives, stated truthfully.
+  await page.goto(historyHref as string)
+  await expect(page.getByTestId('history-withdrawn-notice')).toBeVisible()
+  await expect(page.getByTestId('history-current-version')).toContainText('v1')
+  await expect(page.getByTestId('history-open-current')).toHaveCount(0)
+  await expect(page.getByTestId('history-qr-download')).toHaveCount(0)
+
+  // ---- deleting a draft removes it without inventing a Passport -------------------------
+  await page.goto('/products')
+  const stoolRow = page.getByRole('row').filter({ hasText: STOOL })
+  await stoolRow.getByTestId('product-delete').click()
+  await page.getByTestId('product-delete-confirm').click()
+  await expect(page.getByRole('row').filter({ hasText: STOOL })).toHaveCount(0)
 })
