@@ -38,7 +38,13 @@ FROM deps AS builder
 COPY . .
 # The API build runs `prisma generate` and then `tsc`, so the compiled tree already contains
 # the generated client at dist/src/generated.
-RUN pnpm --filter @notarify/api build
+#
+# `prisma7.config.ts` resolves DATABASE_URL eagerly so the CLI fails fast on a real command
+# rather than later with an opaque connection error. Client generation neither connects nor
+# migrates, so the build supplies a placeholder for that single command instead of baking a
+# fake URL into the image: the migration and seed services receive the real URL from Compose.
+RUN DATABASE_URL=postgresql://build:build@localhost:5432/build?schema=public \
+    pnpm --filter @notarify/api build
 
 # ---------------------------------------------------------------------------------------
 # runner — the API process only
