@@ -19,8 +19,7 @@ import { E2E_ADMIN_EMAIL, E2E_EMAIL, E2E_PASSWORD } from './global-setup.ts'
  * Evidence is layered on purpose: browser behaviour from Playwright, lifecycle facts
  * from PostgreSQL, and generated-document content from the independent pdfjs parser.
  * Cross-milestone invariants that only the API can prove (concurrency, company
- * isolation, role downgrade) stay in the API integration suites and are mapped in
- * `docs/STAGE4-ACCEPTANCE.md`.
+ * isolation, role downgrade) stay in the API integration suites.
  */
 
 const API = 'http://localhost:3000'

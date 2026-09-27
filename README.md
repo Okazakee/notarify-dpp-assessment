@@ -172,7 +172,8 @@ pnpm audit      # dependency audit
 
 The integration suites (`apps/api/test/*.e2e-spec.ts`) run against a real PostgreSQL and
 exercise real transactions, constraints and the Redis cache. The browser suites cover the
-reviewer journeys, and `docs/STAGE4-ACCEPTANCE.md` maps Stage 4's acceptance evidence.
+reviewer journeys, including the cross-milestone Stage 4 acceptance journey in
+`e2e/stage4-acceptance.spec.ts`.
 
 | Suite | Count |
 | --- | --- |

@@ -14,7 +14,7 @@ Use Jest for Nest unit/integration tests, a small frontend component-test setup 
 
 Write tests against observable behavior, not trivial getters or the exact implementation. A global coverage percentage is not the acceptance criterion. Name the critical invariants and prove them. Do not mock away the guard or transaction that the test claims to validate.
 
-**Update 2026-09-25 (Stage 4.6):** the Stage 4 acceptance evidence map lives in [../STAGE4-ACCEPTANCE.md](../STAGE4-ACCEPTANCE.md). It records one cross-milestone lifecycle journey (`e2e/stage4-acceptance.spec.ts`) plus the focused API and browser suites that prove each invariant, and it keeps the physical handset scan, manual UI walkthrough and human source-code review explicitly unvalidated rather than inferred from automated decoding.
+**Update 2026-09-25 (Stage 4.6):** Stage 4's automated acceptance is one cross-milestone lifecycle journey (`e2e/stage4-acceptance.spec.ts`) plus the focused API and browser suites that prove each invariant. The physical handset scan, manual UI walkthrough and human source-code review are explicit manual acceptance items rather than inferred from automated decoding; the scan and walkthrough were performed on the deployed application on 2026-09-26, and human source-code review remains deferred.
 
 For QR, decode the actual image with an independent decoder. For PDF, parse expected content and visually inspect a long multi-page fixture. For public UI, include keyboard and accessibility checks plus manual inspection; automated accessibility tools alone cannot prove conformance.
 
